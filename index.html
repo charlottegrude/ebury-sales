@@ -249,7 +249,7 @@ textarea.fi{min-height:65px;resize:vertical;}
       </svg>
       <div class="logo-meta">
         <div style="font-size:11px;font-weight:600;color:var(--text);">Sales Hub</div>
-        <div class="logo-sub">France · FY 2025-26</div>
+        <div class="logo-sub">France · FY 2026-27</div>
       </div>
     </div>
     <div class="nav" id="navMenu"></div>
@@ -422,7 +422,7 @@ async function loadPersisted(){
     // Load annual target
     var {data:dbAts} = await sb.from('annual_target').select('*').order('updated_at',{ascending:false}).limit(1);
     var dbAt=dbAts&&dbAts[0];
-    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2025-26',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negotiating||0,apps:dbAt.apps||0};
+    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2026-27',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negotiating||0,apps:dbAt.apps||0};
     // Load weekly KPIs
     var {data:dbWKPIs} = await sb.from('weekly_kpis').select('*');
     if(dbWKPIs){
@@ -679,6 +679,13 @@ function setPeriod(p,btn){
   btn.classList.add('active');
   renderSection(currentSection);
 }
+var currentDashPeriod='month';
+function setDashPeriod(p,btn){
+  currentDashPeriod=p;
+  document.querySelectorAll('.dash-period-btn').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  renderSection('dashboard');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // NAV
@@ -690,7 +697,6 @@ function buildNav(){
   html+=navItem('saisie','&#43;','Saisie donn\u00e9es');
   html+='<div class="nav-sep">Commercial</div>';
   html+=navItem('pipe','&#9645;','Pipe');
-  html+=navItem('sales-weekly','&#128200;','Ma semaine');
   html+=navItem('monthly-targets-entry','&#127919;','Mes objectifs');
   html+=navItem('monthly-subjects','&#128197;','Monthly subjects');
   if(!isManager){
@@ -754,9 +760,7 @@ function renderSection(id){
   else if(id==='saisie') html=renderSaisie();
   else if(id==='pipe') html=renderPipe();
   else if(id==='monthly-subjects') html=renderMonthlySubjects();
-  else if(id==='sales-weekly') html=renderSalesWeekly();
   else if(id==='sales-monthly') html=renderSalesMonthly();
-  else if(id==='sales-quarterly') html=renderSalesQuarterly();
   else if(id==='custom-tabs') html=renderCustomTabs();
   else if(id==='team-pipe') html=renderTeamPipe();
   else if(id==='monthly-targets-entry') html=renderMonthlyTargetsEntry();
@@ -783,116 +787,176 @@ function buildDashboard(){
 }
 
 function renderDashboard(){
+  var period=currentDashPeriod||'month';
+  var curMonth=getCurrentMonthKey();
+  var FISCAL_MONTHS=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
   var q=currentQ, Q=QUARTERS[q];
-  var totR=perfData.reduce(function(s,rd){return s+rd[q].rev;},0);
-  var totC=perfData.reduce(function(s,rd){return s+rd[q].clients;},0);
-  var totP=perfData.reduce(function(s,rd){return s+rd[q].pipeline;},0);
-  var totA=perfData.reduce(function(s,rd){return s+rd[q].apps;},0);
-  var tgtR=perfTargets.reduce(function(s,rt){return s+rt[q].rev;},0);
-  var tgtC=perfTargets.reduce(function(s,rt){return s+rt[q].clients;},0);
-  var tgtP=perfTargets.reduce(function(s,rt){return s+rt[q].pipeline;},0);
-  var tgtA=perfTargets.reduce(function(s,rt){return s+rt[q].apps;},0);
-  var pR=pct(totR,tgtR),pC=pct(totC,tgtC),pP=pct(totP,tgtP),pA=pct(totA,tgtA);
 
-  var periodBtns='<button class="dash-period-btn q-btn active" onclick="setDashPeriod(\'week\',this)">Semaine</button>'+
-    '<button class="dash-period-btn q-btn" onclick="setDashPeriod(\'month\',this)">Mois</button>'+
-    '<button class="dash-period-btn q-btn" onclick="setDashPeriod(\'quarter\',this)">Quarter</button>';
-  var qBtns=periodBtns;
+  // ── KPI calculations based on period ──
+  function teamSum(kpi, weekList){
+    return REPS.reduce(function(s,r){return s+sumWeeks(r.key,weekList,kpi);},0);
+  }
+  var weekList;
+  var periodLabel;
+  if(period==='week'){
+    var curWk=getCurrentWeekKey();
+    weekList=getFiscalWeeks().filter(function(w){return weekKey(w)===curWk;});
+    periodLabel='Semaine en cours';
+  } else if(period==='month'){
+    weekList=getWeeksInMonth(curMonth);
+    var MLABELS={'2026-05':'Mai','2026-06':'Juin','2026-07':'Juil','2026-08':'A\u00fbt','2026-09':'Sep','2026-10':'Oct','2026-11':'Nov','2026-12':'D\u00e9c','2027-01':'Jan','2027-02':'F\u00e9v','2027-03':'Mar','2027-04':'Avr'};
+    periodLabel='MTD '+(MLABELS[curMonth]||curMonth);
+  } else {
+    weekList=getWeeksInQuarter(q);
+    periodLabel='QTD '+Q.label;
+  }
 
-  var kpis='<div class="grid-4">';
-  kpis+='<div class="kpi"><div class="kpi-lbl">Net Revenue '+Q.label+'</div><div class="kpi-val">'+fmtGBP(totR)+'</div><div class="kpi-sub">Cible : '+fmtGBP(tgtR)+'</div>'+badge(pR)+prog(pR,'#6aaec8')+'</div>';
-  kpis+='<div class="kpi"><div class="kpi-lbl">Clients sign\u00e9s '+Q.label+'</div><div class="kpi-val">'+totC+'</div><div class="kpi-sub">Cible : '+tgtC+'</div>'+badge(pC)+prog(pC,'#059669')+'</div>';
-  kpis+='<div class="kpi"><div class="kpi-lbl">Pipeline '+Q.label+'</div><div class="kpi-val">'+fmtGBP(totP)+'</div><div class="kpi-sub">Cible : '+fmtGBP(tgtP)+'</div>'+badge(pP)+prog(pP,'#D97706')+'</div>';
-  kpis+='<div class="kpi"><div class="kpi-lbl">Apps soumises '+Q.label+'</div><div class="kpi-val">'+totA+'</div><div class="kpi-sub">Cible : '+tgtA+'</div>'+badge(pA)+prog(pA,'#DC2626')+'</div>';
+  var totRev=teamSum('rev',weekList);
+  var totCli=teamSum('clients',weekList);
+  var totApps=teamSum('apps',weekList);
+  var totMeet=teamSum('meeting',weekList);
+  var totOpp=teamSum('opportunity',weekList);
+
+  // MTD target
+  var tgtRev=REPS.reduce(function(s,r){return s+(((weeklyTargets[r.key]||{})[curMonth]||{}).rev||0);},0);
+  var pRev=pct(totRev,tgtRev);
+
+  // YTD (full FY)
+  var ytdWeeks=getFiscalWeeks();
+  var ytdRev=teamSum('rev',ytdWeeks);
+  var ytdTgt=annualTeamTarget.rev||0;
+  var ytdPct=pct(ytdRev,ytdTgt);
+
+  // Period buttons
+  var periodBtns='<button class="dash-period-btn q-btn'+(period==='week'?' active':'')+'" onclick="setDashPeriod(\'week\',this)">Semaine</button>'+
+    '<button class="dash-period-btn q-btn'+(period==='month'?' active':'')+'" onclick="setDashPeriod(\'month\',this)">Mois (MTD)</button>'+
+    '<button class="dash-period-btn q-btn'+(period==='quarter'?' active':'')+'" onclick="setDashPeriod(\'quarter\',this)">Quarter (QTD)</button>';
+
+  // KPI cards
+  var kpis='<div class="grid-4" style="margin-bottom:1.25rem;">';
+  kpis+='<div class="kpi"><div class="kpi-lbl">Net Revenue \u2014 '+periodLabel+'</div><div class="kpi-val">'+fmtGBP(totRev)+'</div>'+(tgtRev?'<div class="kpi-sub">Cible : '+fmtGBP(tgtRev)+'</div>'+badge(pRev)+prog(pRev,'#6aaec8'):'')+'</div>';
+  kpis+='<div class="kpi"><div class="kpi-lbl">Clients sign\u00e9s \u2014 '+periodLabel+'</div><div class="kpi-val">'+totCli+'</div></div>';
+  kpis+='<div class="kpi"><div class="kpi-lbl">Apps \u2014 '+periodLabel+'</div><div class="kpi-val">'+totApps+'</div></div>';
+  kpis+='<div class="kpi"><div class="kpi-lbl">Meeting \u2014 '+periodLabel+'</div><div class="kpi-val">'+totMeet+'</div></div>';
   kpis+='</div>';
 
-  var annR=perfData.reduce(function(s,rd){return s+rd.reduce(function(ss,d){return ss+d.rev;},0);},0);
-  var annTgt=perfTargets.reduce(function(s,rt){return s+rt.reduce(function(ss,t){return ss+t.rev;},0);},0);
-  var projR=q+1>0?Math.round(annR/(q+1)*4):0;
-  var projCards='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;">';
-  projCards+='<div style="background:var(--bg);border-radius:8px;padding:10px;text-align:center;"><div style="font-size:10px;color:var(--hint);margin-bottom:4px;">R\u00e9alis\u00e9 annuel</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);">'+fmtGBP(annR)+'</div></div>';
-  projCards+='<div style="background:var(--bg);border-radius:8px;padding:10px;text-align:center;"><div style="font-size:10px;color:var(--hint);margin-bottom:4px;">Projection FY</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);">'+fmtGBP(projR)+'</div></div>';
-  projCards+='<div style="background:var(--bg);border-radius:8px;padding:10px;text-align:center;"><div style="font-size:10px;color:var(--hint);margin-bottom:4px;">Cible annuelle</div><div style="font-size:15px;font-weight:700;font-family:var(--mono);">'+fmtGBP(annTgt)+'</div></div>';
-  projCards+='</div>';
+  // YTD banner (manager only)
+  var ytdBanner='';
+  if(isManager){
+    ytdBanner='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem;padding:14px;background:var(--ebury-blue-l);border-radius:var(--border-radius-lg);">';
+    ytdBanner+='<div><div style="font-size:10px;color:var(--ebury-blue-d);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Revenue YTD</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:var(--ebury-blue-d);">'+fmtGBP(ytdRev)+'</div></div>';
+    ytdBanner+='<div><div style="font-size:10px;color:var(--ebury-blue-d);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Target FY</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:var(--ebury-blue-d);">'+fmtGBP(ytdTgt)+'</div></div>';
+    ytdBanner+='<div><div style="font-size:10px;color:var(--ebury-blue-d);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">YTD %</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:'+(ytdPct>=75?'var(--green)':ytdPct>=50?'var(--amber)':'var(--red)')+';">'+ytdPct+'%</div></div>';
+    var ytdDelta=ytdRev-ytdTgt;
+    ytdBanner+='<div><div style="font-size:10px;color:var(--ebury-blue-d);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Delta YTD</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:'+(ytdDelta>=0?'var(--green)':'var(--red)')+';">'+(ytdDelta>=0?'+':'')+fmtGBP(ytdDelta)+'</div></div>';
+    ytdBanner+='</div>';
+  }
 
-  // Leaderboard
-  var lbSel='<select id="lbKpi" onchange="showSection(\'dashboard\')" style="font-size:11px;padding:2px 4px;border:none;background:transparent;font-family:var(--font);color:var(--muted);cursor:pointer;"><option value="rev">Net Revenue</option><option value="clients">Clients</option><option value="pipeline">Negotiating</option><option value="apps">Apps</option></select>';
+  // Leaderboard using weekly data
+  var lbSel='<select id="lbKpi" onchange="showSection(\'dashboard\')" style="font-size:11px;padding:2px 4px;border:none;background:transparent;font-family:var(--font);color:var(--muted);cursor:pointer;"><option value="rev">Net Revenue</option><option value="clients">Clients</option><option value="apps">Apps</option><option value="meeting">Meeting</option><option value="opportunity">Opport.</option></select>';
   var lbKey=document.getElementById('lbKpi')?document.getElementById('lbKpi').value:'rev';
-  var sorted=perfData.map(function(rd,i){return{val:rd[q][lbKey],tgt:perfTargets[i][q][lbKey],i:i};}).sort(function(a,b){return b.val-a.val;});
-  var maxVal=sorted[0].val||1;
+  var lbData=REPS.map(function(rep,ri){
+    var val=teamSum?sumWeeks(rep.key,weekList,lbKey):0;
+    var tgt=((weeklyTargets[rep.key]||{})[curMonth]||{})[lbKey]||0;
+    return{val:val,tgt:tgt,i:ri};
+  }).sort(function(a,b){return b.val-a.val;});
+  var maxVal=lbData[0]&&lbData[0].val>0?lbData[0].val:1;
   var lbRows='';
-  sorted.forEach(function(r,rank){
+  lbData.forEach(function(r,rank){
     var rep=REPS[r.i];
     var p2=pct(r.val,r.tgt);
     var bw=Math.round(r.val/maxVal*100);
     var isTop=rank===0;
-    var display=(lbKey==='rev'||lbKey==='pipeline')?fmtGBP(r.val):r.val;
-    var rankClass=isTop?'lb-rank gold':'lb-rank';
-    var starLbl=isTop?(rank+1)+' \u2605':(rank+1);
-    lbRows+='<div class="lb-row"><span class="'+rankClass+'">'+starLbl+'</span><div class="av '+rep.av+'">'+rep.init+'</div><div class="lb-info"><div class="lb-name">'+rep.name+'</div><div class="lb-sub">'+p2+'% obj. '+Q.label+'</div></div><div class="lb-bar-bg"><div class="lb-bar-fg" style="width:'+bw+'%;background:'+rep.color+';"></div></div><div class="lb-amt">'+display+'</div></div>';
+    var display=lbKey==='rev'?fmtGBP(r.val):r.val;
+    lbRows+='<div class="lb-row"><span class="'+(isTop?'lb-rank gold':'lb-rank')+'">'+(isTop?(rank+1)+' \u2605':(rank+1))+'</span>'+
+      '<div class="av '+rep.av+'">'+rep.init+'</div>'+
+      '<div class="lb-info"><div class="lb-name">'+rep.name+'</div><div class="lb-sub">'+p2+'% obj.</div></div>'+
+      '<div class="lb-bar-bg"><div class="lb-bar-fg" style="width:'+bw+'%;background:'+rep.color+';"></div></div>'+
+      '<div class="lb-amt">'+display+'</div></div>';
   });
+
+  // Per-rep KPI breakdown (manager only)
+  var repBreakdown='';
+  if(isManager){
+    repBreakdown='<div class="card" style="margin-bottom:1.25rem;overflow-x:auto;">';
+    repBreakdown+='<div class="card-title">D\u00e9tail par commercial \u2014 '+periodLabel+'</div>';
+    repBreakdown+='<table class="tbl"><thead><tr><th>Commercial</th><th>Net Rev.</th><th>Clients</th><th>Apps</th><th>Meeting</th><th>Opport.</th></tr></thead><tbody>';
+    // Team total row
+    repBreakdown+='<tr style="background:var(--color-background-secondary);font-weight:600;"><td>\u00c9quipe</td><td class="mono">'+fmtGBP(totRev)+'</td><td>'+totCli+'</td><td>'+totApps+'</td><td>'+totMeet+'</td><td>'+totOpp+'</td></tr>';
+    REPS.forEach(function(rep){
+      repBreakdown+='<tr>';
+      repBreakdown+='<td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+rep.init+'</div>'+rep.name+'</td>';
+      repBreakdown+='<td class="mono">'+fmtGBP(sumWeeks(rep.key,weekList,'rev'))+'</td>';
+      repBreakdown+='<td>'+sumWeeks(rep.key,weekList,'clients')+'</td>';
+      repBreakdown+='<td>'+sumWeeks(rep.key,weekList,'apps')+'</td>';
+      repBreakdown+='<td>'+sumWeeks(rep.key,weekList,'meeting')+'</td>';
+      repBreakdown+='<td>'+sumWeeks(rep.key,weekList,'opportunity')+'</td>';
+      repBreakdown+='</tr>';
+    });
+    repBreakdown+='</tbody></table></div>';
+  }
 
   // Alerts
   var alHtml='';
-  var topI=sorted[0].i;
-  alHtml+='<div class="al-item al-ok"><div class="al-dot"></div><div class="al-text"><span class="al-b">\u2605 Top '+Q.label+'</span> \u2014 '+REPS[topI].name+' m\u00e8ne avec '+fmtGBP(perfData[topI][q].rev)+'.</div></div>';
-  perfData.forEach(function(rd,i){
-    var p3=pct(rd[q].rev,perfTargets[i][q].rev);
-    if(p3<60&&perfTargets[i][q].rev>0) alHtml+='<div class="al-item al-danger"><div class="al-dot"></div><div class="al-text"><span class="al-b">'+REPS[i].name+'</span> \u2014 '+p3+'% obj. Action requise.</div></div>';
-    else if(p3<80&&perfTargets[i][q].rev>0) alHtml+='<div class="al-item al-warn"><div class="al-dot"></div><div class="al-text"><span class="al-b">'+REPS[i].name+'</span> \u2014 '+p3+'% obj. Rythme \u00e0 surveiller.</div></div>';
+  if(lbData[0]){
+    alHtml+='<div class="al-item al-ok"><div class="al-dot"></div><div class="al-text"><span class="al-b">\u2605 Top</span> \u2014 '+REPS[lbData[0].i].name+' m\u00e8ne avec '+fmtGBP(lbData[0].val)+'.</div></div>';
+  }
+  lbData.forEach(function(r){
+    var p3=pct(r.val,r.tgt);
+    if(r.tgt>0&&p3<50) alHtml+='<div class="al-item al-danger"><div class="al-dot"></div><div class="al-text"><span class="al-b">'+REPS[r.i].name+'</span> \u2014 '+p3+'% obj. Action requise.</div></div>';
+    else if(r.tgt>0&&p3<75) alHtml+='<div class="al-item al-warn"><div class="al-dot"></div><div class="al-text"><span class="al-b">'+REPS[r.i].name+'</span> \u2014 '+p3+'% obj. Rythme \u00e0 surveiller.</div></div>';
   });
 
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Dashboard \u00e9quipe</div><div class="ph-sub">FY Mai 2025 \u2192 Avr 2026 \u00b7 '+Q.label+' '+Q.months+'</div></div><div class="q-row">'+qBtns+'</div></div>'+
-    kpis+
-    (isManager?'':
-    '<div class="card" style="margin-bottom:1rem;">'+
-      '<div style="margin-bottom:12px;">'+
-        '<div class="card-title" style="margin-bottom:6px;">Ma semaine \u2014 '+weekLabel(new Date(getCurrentWeekKey()+'T00:00:00'))+'</div>'+
-        (function(){var d=(weeklyKPIs[currentRep]||{})[getCurrentWeekKey()]||{};
-          return '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;">'+
-            ['rev','negotiating','apps','clients','meeting','opportunity'].map(function(k,i){
-              var lbl=['Net Rev.','Negotiating','Apps','Clients','Meeting','Opport.'][i];
-              var val=k==='rev'?fmtGBP(d[k]||0):(d[k]||0);
-              return '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">'+lbl+'</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">'+val+'</div></div>';
-            }).join('')+'</div>';
-        })()+
-        '<div style="text-align:right;margin-top:6px;"><button onclick="showSection(\'weekly-entry\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">Saisir / Modifier \u2192</button></div>'+
+  // Sales personal widgets (non-manager)
+  var salesWidgets='';
+  if(!isManager){
+    var myWk=(weeklyKPIs[currentRep]||{})[getCurrentWeekKey()]||{};
+    var myMTDWeeks=getWeeksInMonth(curMonth);
+    var myMTDRev=sumWeeks(currentRep,myMTDWeeks,'rev');
+    var myMTDTgt=((weeklyTargets[currentRep]||{})[curMonth]||{}).rev||0;
+    var myPct=pct(myMTDRev,myMTDTgt);
+    var pColor=myPct>=75?'var(--green)':myPct>=50?'var(--amber)':'var(--red)';
+    salesWidgets='<div class="card" style="margin-bottom:1.25rem;">'+
+      '<div class="card-title" style="margin-bottom:6px;">Ma semaine \u2014 '+weekLabel(new Date(getCurrentWeekKey()+'T00:00:00'))+'</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px;">'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Net Rev.</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+fmtGBP(myWk.rev||0)+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Apps</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+(myWk.apps||0)+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Clients</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+(myWk.clients||0)+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Meeting</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+(myWk.meeting||0)+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Opport.</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+(myWk.opportunity||0)+'</div></div>'+
       '</div>'+
+      '<div style="text-align:right;"><button onclick="showSection(\'sales-weekly\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">Saisir ma semaine \u2192</button></div>'+
     '</div>'+
-    '<div class="card" style="margin-bottom:1rem;">'+
-    '<div class="card-title" style="margin-bottom:6px;">Mon mois (MTD)</div>'+
-    (function(){
-      var m=getCurrentMonthKey();
-      var weeks=getWeeksInMonth(m);
-      var mtdRev=sumWeeks(currentRep,weeks,'rev');
-      var mtdTgt=((weeklyTargets[currentRep]||{})[m]||{}).rev||0;
-      var p=mtdTgt>0?Math.round(mtdRev/mtdTgt*100):0;
-      var pColor=p>=75?'#3B6D11':(p>=50?'#854F0B':'#A32D2D');
-      var kc1='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Rev. MTD</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">';
-      var kc2='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Target MTD</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">';
-      var kc3='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">MTD %</div><div style="font-size:13px;font-weight:500;color:'+pColor+';font-family:var(--font-mono);">';
-      return '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">'+
-        kc1+fmtGBP(mtdRev)+'</div></div>'+
-        kc2+(mtdTgt?fmtGBP(mtdTgt):'\u2014')+'</div></div>'+
-        kc3+(mtdTgt?p+'%':'\u2014')+'</div></div>'+
-      '</div>';
-    })()+
-    '<div style="text-align:right;margin-top:6px;"><button onclick="showSection(\'monthly-targets-entry\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">D\u00e9tails \u2192</button></div>'+
+    '<div class="card" style="margin-bottom:1.25rem;">'+
+      '<div class="card-title" style="margin-bottom:6px;">Mon mois (MTD)</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Rev. MTD</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+fmtGBP(myMTDRev)+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Target MTD</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+(myMTDTgt?fmtGBP(myMTDTgt):'\u2014')+'</div></div>'+
+        '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">MTD %</div><div style="font-size:14px;font-weight:500;font-family:var(--font-mono);color:'+pColor+';">'+(myMTDTgt?myPct+'%':'\u2014')+'</div></div>'+
+      '</div>'+
+      '<div style="text-align:right;"><button onclick="showSection(\'sales-monthly\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">D\u00e9tails \u2192</button></div>'+
+    '</div>';
+  }
+
+  // Monthly chart
+  var chartCard='<div class="card"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">'+
+    '<span>Net Revenue \u2014 \u00e9volution mensuelle</span>'+
+    '<div style="display:flex;gap:10px;font-size:11px;">'+REPS.map(function(r,i){var cols=['#059669','#2563EB','#D97706'];return'<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+cols[i]+';margin-right:4px;"></span>'+r.name+'</span>';}).join('')+'</div>'+
     '</div>'+
-    '</div>')+
+    '<div class="chart-wrap" style="height:200px;"><canvas id="trendChart" role="img" aria-label="Net revenue mensuel">Net revenue \u00e9volution mensuelle</canvas></div></div>';
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Dashboard \u00e9quipe</div><div class="ph-sub">FY 2026-27 \u2022 '+periodLabel+'</div></div>'+
+    '<div class="q-row">'+periodBtns+'</div></div>'+
+    ytdBanner+
+    salesWidgets+
+    kpis+
+    repBreakdown+
     '<div class="grid-2">'+
       '<div class="card"><div class="card-title">Leaderboard \u2014 '+lbSel+'</div>'+lbRows+'</div>'+
-      '<div class="card"><div class="card-title">Alertes &amp; projections</div>'+alHtml+projCards+'</div>'+
+      '<div class="card"><div class="card-title">Alertes</div>'+alHtml+'</div>'+
     '</div>'+
-    '<div class="card"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">'+
-      '<span>Net Revenue \u2014 \u00e9volution mensuelle</span>'+
-      '<div style="display:flex;gap:10px;font-size:11px;">'+
-        REPS.map(function(r,i){var cols=['#059669','#2563EB','#D97706'];return '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+cols[i]+';margin-right:4px;"></span>'+r.name+'</span>';}).join('')+
-      '</div>'+
-    '</div>'+
-    '<div class="chart-wrap" style="height:200px;"><canvas id="trendChart" role="img" aria-label="Net revenue par quarter">Net revenue r\u00e9alis\u00e9 vs objectif</canvas></div></div>';
+    chartCard;
 }
-
 function setQ(q){
   currentQ=q;
   document.querySelectorAll('.q-btn').forEach(function(b){b.classList.remove('active');});
@@ -930,64 +994,49 @@ function initMonthlyChart(){
 function renderSaisie(){
   var repTabs=REPS.map(function(r,i){return'<button class="q-btn'+(i===saisieRep?' active':'')+'" onclick="setSaisieRep('+i+')">'+r.name+'</button>';}).join('');
   var qTabsD=QUARTERS.map(function(q,i){return'<button class="q-btn'+(i===saisieQ?' active':'')+'" onclick="setSaisieQ('+i+')">'+q.label+'</button>';}).join('');
-  var qTabsT=QUARTERS.map(function(q,i){return'<button class="q-btn'+(i===targetQIdx?' active':'')+'" onclick="setTargetQ('+i+')">'+q.label+'</button>';}).join('');
-  var repTabsT=REPS.map(function(r,i){return'<button class="q-btn'+(i===targetRepIdx?' active':'')+'" onclick="setTargetRep('+i+')">'+r.name+'</button>';}).join('');
   var d=perfData[saisieRep][saisieQ];
-  var t=perfTargets[targetRepIdx][targetQIdx];
-  var teamRecap='<div class="card-title">R\u00e9cap cibles \u00e9quipe</div>';
-  var totAnn=perfTargets.reduce(function(s,rt){return s+rt.reduce(function(ss,tt){return ss+tt.rev;},0);},0);
-  QUARTERS.forEach(function(q,qi){
-    var tr=perfTargets.reduce(function(s,rt){return s+rt[qi].rev;},0);
-    var tc=perfTargets.reduce(function(s,rt){return s+rt[qi].clients;},0);
-    teamRecap+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--muted);">'+q.label+' '+q.months+'</span><span class="mono" style="font-weight:600;">'+fmtGBP(tr)+' \u00b7 '+tc+' clients</span></div>';
-  });
-  teamRecap+='<div style="margin-top:8px;font-size:11px;color:var(--muted);">Total annuel : <strong style="font-family:var(--mono);color:var(--text);">'+fmtGBP(totAnn)+'</strong></div>';
-
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Saisie donn\u00e9es Salesforce</div><div class="ph-sub">Mise \u00e0 jour des KPIs par commercial et quarter</div></div></div>'+
-    '<div class="grid-2">'+
-      '<div class="card">'+
-        '<div class="card-title">Donn\u00e9es r\u00e9alis\u00e9es</div>'+
-        '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabs+'</div>'+
-        '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">'+qTabsD+'</div>'+
-        '<div class="form-row cols-2">'+
-          '<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="in_rev" value="'+(d.rev||'')+'" min="0" step="100"></div>'+
-          '<div class="fg"><span class="fl">Clients sign\u00e9s</span><input class="fi" type="number" id="in_clients" value="'+(d.clients||'')+'" min="0"></div>'+
-          '<div class="fg"><span class="fl">Negotiating (nb)</span><input class="fi" type="number" id="in_pipe" value="'+(d.pipeline||'')+'" min="0" step="1"></div>'+
-          '<div class="fg"><span class="fl">Apps soumises</span><input class="fi" type="number" id="in_apps" value="'+(d.apps||'')+'" min="0"></div>'+
-        '</div>'+
-        '<button class="btn-save" onclick="saveData()">Enregistrer</button>'+
-      '</div>'+
-      (isManager ?
-      '<div class="card">'+
-        '<div class="card-title">Objectifs par commercial &amp; quarter</div>'+
-        '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabsT+'</div>'+
-        '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">'+qTabsT+'</div>'+
-        '<div class="form-row cols-2">'+
-          '<div class="fg"><span class="fl">Cible Net Revenue (\xA3)</span><input class="fi" type="number" id="t_rev" value="'+(t.rev||'')+'" min="0" step="100"></div>'+
-          '<div class="fg"><span class="fl">Cible Clients</span><input class="fi" type="number" id="t_clients" value="'+(t.clients||'')+'" min="0"></div>'+
-          '<div class="fg"><span class="fl">Cible Opportunity (\xA3)</span><input class="fi" type="number" id="t_opp" value="'+(t.opportunity||'')+'" min="0" step="100"></div>'+
-          '<div class="fg"><span class="fl">Cible Negotiating (nb)</span><input class="fi" type="number" id="t_pipe" value="'+(t.pipeline||'')+'" min="0" step="1"></div>'+
-          '<div class="fg"><span class="fl">Cible Meeting</span><input class="fi" type="number" id="t_meeting" value="'+(t.meeting||'')+'" min="0"></div>'+
-          '<div class="fg"><span class="fl">Cible Apps</span><input class="fi" type="number" id="t_apps" value="'+(t.apps||'')+'" min="0"></div>'+
-        '</div>'+
-        '<button class="btn-save" onclick="saveTarget()">Enregistrer objectifs</button>'+
-        '<div style="margin-top:1rem;">'+teamRecap+'</div>'+
-      '</div>'
-      : '<div class="card" style="background:var(--ebury-blue-l);border-color:#b3d7e8;padding:1.5rem;text-align:center;"><div style="font-size:12px;color:var(--ebury-blue-d);">Les objectifs sont d\u00e9finis par le manager.</div></div>')+
-    +(isManager ?
-    '<div class="card" style="margin-top:1rem;border:1px solid var(--amber-l);">'+
-      '<div class="card-title" style="color:var(--amber);">Mon revenu — Manager</div>'+
-      '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+
-        QUARTERS.map(function(qq,i){return '<button class="q-btn'+(i===saisieQ?' active':'')+'" onclick="setSaisieQ('+i+')">'+qq.label+'</button>';}).join('')+
-      '</div>'+
-      '<div class="form-row cols-2">'+
-        '<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="mgr_rev" value="'+(mgrPerfData[saisieQ].rev||'')+'" min="0" step="100"></div>'+
-        '<div class="fg"><span class="fl">Negotiating (\xA3)</span><input class="fi" type="number" id="mgr_pipe" value="'+(mgrPerfData[saisieQ].pipeline||'')+'" min="0" step="1"></div>'+
-      '</div>'+
-      '<button class="btn-save" onclick="saveMgrPerf()">Enregistrer</button>'+
-    '</div>'
-    : '')
-    '</div>';
+  var html='<div class="ph">'+backBtn()+'<div><div class="ph-title">Saisie donn\u00e9es Salesforce</div><div class="ph-sub">Mise \u00e0 jour des KPIs par commercial et quarter</div></div></div>';
+  html+='<div class="card" style="margin-bottom:1rem;">';
+  html+='<div class="card-title">Donn\u00e9es r\u00e9alis\u00e9es</div>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabs+'</div>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">'+qTabsD+'</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+  html+='<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="in_rev" value="'+(d.rev||'')+'" min="0" step="100"></div>';
+  html+='<div class="fg"><span class="fl">Clients sign\u00e9s</span><input class="fi" type="number" id="in_clients" value="'+(d.clients||'')+'" min="0"></div>';
+  html+='<div class="fg"><span class="fl">Negotiating (nb)</span><input class="fi" type="number" id="in_pipe" value="'+(d.pipeline||'')+'" min="0"></div>';
+  html+='<div class="fg"><span class="fl">Apps soumises</span><input class="fi" type="number" id="in_apps" value="'+(d.apps||'')+'" min="0"></div>';
+  html+='</div>';
+  html+='<button class="btn-save" onclick="saveData()">Enregistrer</button>';
+  html+='</div>';
+  if(isManager){
+    var qTabsT=QUARTERS.map(function(q,i){return'<button class="q-btn'+(i===targetQIdx?' active':'')+'" onclick="setTargetQ('+i+')">'+q.label+'</button>';}).join('');
+    var repTabsT=REPS.map(function(r,i){return'<button class="q-btn'+(i===targetRepIdx?' active':'')+'" onclick="setTargetRep('+i+')">'+r.name+'</button>';}).join('');
+    var t=perfTargets[targetRepIdx][targetQIdx];
+    html+='<div class="card" style="margin-bottom:1rem;">';
+    html+='<div class="card-title">Objectifs par commercial &amp; quarter</div>';
+    html+='<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabsT+'</div>';
+    html+='<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">'+qTabsT+'</div>';
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+    html+='<div class="fg"><span class="fl">Cible Net Revenue (\xA3)</span><input class="fi" type="number" id="t_rev" value="'+(t.rev||'')+'" min="0" step="100"></div>';
+    html+='<div class="fg"><span class="fl">Cible Clients</span><input class="fi" type="number" id="t_clients" value="'+(t.clients||'')+'" min="0"></div>';
+    html+='<div class="fg"><span class="fl">Cible Negotiating (nb)</span><input class="fi" type="number" id="t_pipe" value="'+(t.pipeline||'')+'" min="0"></div>';
+    html+='<div class="fg"><span class="fl">Cible Apps</span><input class="fi" type="number" id="t_apps" value="'+(t.apps||'')+'" min="0"></div>';
+    html+='</div>';
+    html+='<button class="btn-save" onclick="saveTarget()">Enregistrer objectifs</button>';
+    html+='</div>';
+    html+='<div class="card" style="border:1px solid var(--amber-l);">';
+    html+='<div class="card-title" style="color:var(--amber);">Mon revenu \u2014 Manager</div>';
+    html+='<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">';
+    html+=QUARTERS.map(function(qq,i){return'<button class="q-btn'+(i===saisieQ?' active':'')+'" onclick="setSaisieQ('+i+')">'+qq.label+'</button>';}).join('');
+    html+='</div>';
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+    html+='<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="mgr_rev" value="'+(mgrPerfData[saisieQ].rev||'')+'" min="0" step="100"></div>';
+    html+='<div class="fg"><span class="fl">Negotiating (nb)</span><input class="fi" type="number" id="mgr_pipe" value="'+(mgrPerfData[saisieQ].pipeline||'')+'" min="0"></div>';
+    html+='</div>';
+    html+='<button class="btn-save" onclick="saveMgrPerf()">Enregistrer</button>';
+    html+='</div>';
+  }
+  return html;
 }
 function saveMgrPerf(){
   mgrPerfData[saisieQ].rev=parseFloat(document.getElementById('mgr_rev').value)||0;
@@ -1341,31 +1390,99 @@ function renderSalesMonthly(){
   var MLABELS={'2026-05':'Mai 26','2026-06':'Juin 26','2026-07':'Juil 26','2026-08':'A\u00fbt 26','2026-09':'Sep 26','2026-10':'Oct 26','2026-11':'Nov 26','2026-12':'D\u00e9c 26','2027-01':'Jan 27','2027-02':'F\u00e9v 27','2027-03':'Mar 27','2027-04':'Avr 27'};
   var m=selectedSalesMonth;
 
-  // Get realised from weekly kpis for this month
-  var weeks=getWeeksInMonth(m);
-  function getReal(kpi){ return sumWeeks(rep,weeks,kpi); }
-  // Get target from weeklyTargets
-  var tgt=(weeklyTargets[rep]||{})[m]||{};
-
-  var KPIS=[
-    {key:'rev',label:'Net Revenue',isMoney:true},
-    {key:'apps',label:'Apps soumises',isMoney:false},
-    {key:'clients',label:'Clients sign\u00e9s',isMoney:false},
-    {key:'meeting',label:'Meeting',isMoney:false},
-    {key:'opportunity',label:'Opportunity',isMoney:false}
-  ];
-
-  var totalRev=getReal('rev');
-  var tgtRev=tgt.rev||0;
-  var pctRev=tgtRev>0?Math.round(totalRev/tgtRev*100):0;
-  var pColor=pctRev>=75?'var(--green)':pctRev>=50?'var(--amber)':'var(--red)';
-
   var monthBtns=FMONTHS.map(function(mo){
     return '<button class="q-btn'+(mo===m?' active':'')+'" style="font-size:10px;padding:3px 10px;" onclick="selectedSalesMonth=\''+mo+'\';showSection(\'sales-monthly\')">'+MLABELS[mo]+'</button>';
   }).join('');
 
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Mon mois</div><div class="ph-sub">'+repInfo.name+' \u2014 '+(MLABELS[m]||m)+'</div></div></div>'+
+    '<div class="card">'+
+      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;">'+monthBtns+'</div>'+
+      getMonthlyRecapContent(rep,m,MLABELS)+
+    '</div>';
+}
+
+function renderWeekly(){
+  var w=weeklyData;
+  var today=new Date();
+  var dayOfWeek=today.getDay();
+  var mondayOffset=dayOfWeek===0?-6:1-dayOfWeek;
+  var monday=new Date(today);monday.setDate(today.getDate()+mondayOffset);
+  var friday=new Date(monday);friday.setDate(monday.getDate()+4);
+  var monStr=weekKey(monday);
+  var friStr=weekKey(friday);
+  var monLabel=monday.toLocaleDateString('fr-FR',{day:'numeric',month:'long'});
+  var friLabel=friday.toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+
+  var weekDeals=[];
+  REPS.forEach(function(rep){
+    (deals[rep.key]||[]).forEach(function(d){
+      if(d.closingDate&&d.closingDate>=monStr&&d.closingDate<=friStr){
+        weekDeals.push({account:d.account,rev:d.rev,stage:d.stage,proba:d.proba,closingDate:d.closingDate,comment:d.comment,repName:rep.name,repAv:rep.av,repInit:rep.init});
+      }
+    });
+  });
+  (mgrDeals||[]).forEach(function(d){
+    if(d.closingDate&&d.closingDate>=monStr&&d.closingDate<=friStr){
+      weekDeals.push({account:d.account,rev:d.rev,stage:d.stage,proba:d.proba,closingDate:d.closingDate,comment:d.comment,repName:'Manager',repAv:'av-m',repInit:'M'});
+    }
+  });
+
+  var dealRows=weekDeals.length?weekDeals.map(function(d){
+    return '<tr><td><div class="av '+d.repAv+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+d.repInit+'</div>'+d.repName+'</td>'+
+      '<td><strong>'+esc(d.account)+'</strong></td>'+
+      '<td class="mono">'+fmtGBP(d.rev)+'</td>'+
+      '<td><span class="pill '+stageClass(d.stage)+'">'+d.stage+'</span></td>'+
+      '<td class="mono">'+d.proba+'%</td>'+
+      '<td>'+d.closingDate+'</td>'+
+      '<td style="font-size:10px;color:var(--color-text-tertiary);">'+(d.comment?esc(d.comment).substring(0,40):'\u2014')+'</td></tr>';
+  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--color-text-tertiary);padding:1rem;">Aucun deal pr\u00e9vu pour fermeture cette semaine.</td></tr>';
+
+  var itemRows=w.items&&w.items.length?w.items.map(function(it,i){
+    var pColor=it.prio==='Urgent'?'var(--red)':it.prio==='Important'?'var(--amber)':'var(--green)';
+    return '<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:.5px solid var(--color-border-tertiary);">'+
+      '<div style="width:7px;height:7px;border-radius:50%;background:'+pColor+';margin-top:4px;flex-shrink:0;"></div>'+
+      '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">'+esc(it.title)+'<span style="font-size:10px;background:var(--color-background-secondary);color:var(--color-text-secondary);padding:1px 6px;border-radius:8px;margin-left:6px;">'+esc(it.rep)+'</span></div>'+
+      (it.notes?'<div style="font-size:11px;color:var(--color-text-secondary);margin-top:2px;">'+esc(it.notes)+'</div>':'')+
+      '</div><button class="btn-sm del" onclick="delWkItem('+i+')">&#x2715;</button></div>';
+  }).join(''):'<div style="color:var(--color-text-tertiary);font-size:12px;padding:1rem 0;">Aucun sujet \u2014 cliquez + Sujet.</div>';
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Weekly Manager</div><div class="ph-sub">'+monLabel+' au '+friLabel+'</div></div><button class="btn-save" onclick="openWkModal()">+ Sujet</button></div>'+
+    '<div class="grid-2">'+
+      '<div class="card">'+
+        '<div class="card-title">KPIs semaine \u00e9quipe</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
+          '<div class="fg"><span class="fl">Nb apps back</span><input class="fi" type="number" id="wk_apps_back" value="'+(w.appsBack||0)+'" onblur="saveWkNum(\'appsBack\',this.value)"></div>'+
+          '<div class="fg"><span class="fl">Ouvertures comptes</span><input class="fi" type="number" id="wk_openings" value="'+(w.accountOpenings||0)+'" onblur="saveWkNum(\'accountOpenings\',this.value)"></div>'+
+          '<div class="fg"><span class="fl">Nb de FT</span><input class="fi" type="number" id="wk_ft" value="'+(w.ftCount||0)+'" onblur="saveWkNum(\'ftCount\',this.value)"></div>'+
+          '<div class="fg"><span class="fl">RDV pr\u00e9vus</span><input class="fi" type="number" id="wk_rdv" value="'+(w.rdvCount||0)+'" onblur="saveWkNum(\'rdvCount\',this.value)"></div>'+
+          '<div class="fg" style="grid-column:1/-1;"><span class="fl">Revenu \u00e9quipe (\xA3)</span><input class="fi" type="number" id="wk_rev" value="'+(w.teamRevenue||0)+'" onblur="saveWkNum(\'teamRevenue\',this.value)"></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="card">'+
+        '<div class="card-title">Clients &gt;5k\xA3 cette semaine</div>'+
+        '<textarea class="fi" style="width:100%;min-height:80px;" id="wk_big_clients" onblur="saveWkField(\'bigClients\')">'+(w.bigClients||'')+'</textarea>'+
+        '<div class="card-title" style="margin-top:12px;">Sujets de la semaine</div>'+
+        itemRows+
+      '</div>'+
+    '</div>'+
+    '<div class="card">'+
+      '<div class="card-title">Deals pr\u00e9vus cette semaine \u2014 closing du '+monLabel+' au '+friLabel+'</div>'+
+      '<div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Commercial</th><th>Compte</th><th>Rev. estim\u00e9</th><th>\u00c9tape</th><th>Proba</th><th>Closing</th><th>Commentaire</th></tr></thead><tbody>'+dealRows+'</tbody></table></div>'+
+    '</div>';
+}
+
+function getMonthlyRecapContent(rep, m, MLABELS){
+  var weeks=getWeeksInMonth(m);
+  var tgt=(weeklyTargets[rep]||{})[m]||{};
+  var KPIS=[
+    {key:'rev',label:'Net Revenue',isMoney:true},
+    {key:'apps',label:'Apps soumises',isMoney:false},
+    {key:'clients',label:'Clients sign\u00e9s',isMoney:false},
+    {key:'meeting',label:'Meeting / RDV',isMoney:false},
+    {key:'opportunity',label:'Opportunity',isMoney:false}
+  ];
   var kpiRows=KPIS.map(function(k){
-    var real=getReal(k.key);
+    var real=sumWeeks(rep,weeks,k.key);
     var t=tgt[k.key]||0;
     var p=t>0?Math.round(real/t*100):0;
     var badgeCls=p>=75?'ok':p>=50?'warn':'danger';
@@ -1381,160 +1498,42 @@ function renderSalesMonthly(){
     '</div>';
   }).join('');
 
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Mon mois</div><div class="ph-sub">'+repInfo.name+' \u2014 '+(MLABELS[m]||m)+'</div></div></div>'+
-    '<div class="card">'+
-      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;">'+monthBtns+'</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">'+
-        '<div class="kpi"><div class="kpi-lbl">Net Revenue r\u00e9alis\u00e9</div><div class="kpi-val">'+fmtGBP(totalRev)+'</div></div>'+
-        '<div class="kpi"><div class="kpi-lbl">Target mensuelle</div><div class="kpi-val">'+(tgtRev?fmtGBP(tgtRev):'\u2014')+'</div></div>'+
-        '<div class="kpi"><div class="kpi-lbl">Atteinte</div><div class="kpi-val" style="color:'+pColor+';">'+(tgtRev?pctRev+'%':'\u2014')+'</div></div>'+
-      '</div>'+
-      kpiRows+
-    '</div>';
-}
-
-function renderSalesQuarterly(){
-  var rep=currentRep;
-  var ri=repIdx(rep);
-  var qBtns=QUARTERS.map(function(q,i){return'<button class="q-btn'+(i===currentQ?' active':'')+'" onclick="setQ('+i+');showSection(\'sales-quarterly\')">'+q.label+' '+q.months+'</button>';}).join('');
-  var d=perfData[ri][currentQ], t=perfTargets[ri][currentQ];
-  var Q=QUARTERS[currentQ];
-  var html='<div class="ph"><div><div class="ph-title">Mon quarter</div><div class="ph-sub">'+repByKey(rep).name+' \u2014 '+Q.label+' '+Q.months+'</div></div><div class="q-row">'+qBtns+'</div></div>';
-  html+='<div class="grid-4">'+
-    '<div class="kpi"><div class="kpi-lbl">Net Revenue</div><div class="kpi-val">'+fmtGBP(d.rev)+'</div><div class="kpi-sub">Cible : '+fmtGBP(t.rev)+'</div>'+badge(pct(d.rev,t.rev))+prog(pct(d.rev,t.rev),'#6aaec8')+'</div>'+
-    '<div class="kpi"><div class="kpi-lbl">Clients</div><div class="kpi-val">'+d.clients+'</div><div class="kpi-sub">Cible : '+t.clients+'</div>'+badge(pct(d.clients,t.clients))+'</div>'+
-    '<div class="kpi"><div class="kpi-lbl">Pipeline</div><div class="kpi-val">'+fmtGBP(d.pipeline)+'</div><div class="kpi-sub">Cible : '+fmtGBP(t.pipeline)+'</div>'+badge(pct(d.pipeline,t.pipeline))+'</div>'+
-    '<div class="kpi"><div class="kpi-lbl">Apps</div><div class="kpi-val">'+d.apps+'</div><div class="kpi-sub">Cible : '+t.apps+'</div>'+badge(pct(d.apps,t.apps))+'</div>'+
-  '</div>';
-  return html;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CUSTOM TABS (SALES)
-// ═══════════════════════════════════════════════════════════════
-var customTabActive={julien:0,anael:0,pierre:0};
-function renderCustomTabs(){
-  var rep=currentRep;
-  var tabs=customTabs[rep]||[];
-  var active=customTabActive[rep]||0;
-  if(!tabs.length){
-    return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Mes onglets personnalis\u00e9s</div><div class="ph-sub">Cr\u00e9ez vos propres espaces de travail</div></div></div>'+
-      '<div class="card" style="text-align:center;padding:3rem;"><div style="font-size:14px;color:var(--muted);margin-bottom:1rem;">Vous n\'avez pas encore d\'onglet personnalis\u00e9.</div><button class="btn-save" onclick="openNewTabModal(\''+rep+'\')">+ Cr\u00e9er mon premier onglet</button></div>';
+  var saved=recapData[(rep||'')+'_'+m]||{};
+  function ta(id,label,placeholder,color){
+    var col=color?'color:'+color+';':'';
+    return '<div class="fg" style="margin-bottom:12px;"><span class="fl" style="font-size:11px;font-weight:600;'+col+'">'+label+'</span>'+
+      '<textarea class="fi" style="width:100%;min-height:70px;" id="'+id+'" onblur="saveMonthlyRecapField(\''+rep+'\',\''+m+'\',\''+id+'\')" placeholder="'+placeholder+'">'+esc(saved[id]||'')+'</textarea></div>';
   }
-  var tabBar='<div class="custom-tab-wrap">';
-  tabs.forEach(function(t,i){tabBar+='<button class="q-btn'+(i===active?' active':'')+'" onclick="setCustomTab(\''+rep+'\','+i+')">'+esc(t.name)+'</button>';});
-  tabBar+='<button class="custom-tab-add" onclick="openNewTabModal(\''+rep+'\')">+ Nouvel onglet</button>';
-  tabBar+='</div>';
-  var activeTab=tabs[active]||{};
-  var contentHtml='<div class="card">'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'+
-      '<div class="card-title" style="margin:0;">'+esc(activeTab.name||'')+'</div>'+
-      '<div style="display:flex;gap:6px;"><button class="btn-sm" onclick="editCustomTab(\''+rep+'\','+active+')">Renommer</button><button class="btn-sm del" onclick="delCustomTab(\''+rep+'\','+active+')">Supprimer</button></div>'+
-    '</div>'+
-    '<textarea class="fi" style="width:100%;min-height:300px;" id="customContent" onblur="saveCustomContent(\''+rep+'\','+active+')">'+esc(activeTab.content||'')+'</textarea>'+
-    '<div style="margin-top:8px;font-size:11px;color:var(--hint);">Le contenu est sauvegard\u00e9 automatiquement.</div>'+
-  '</div>';
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Mes onglets</div><div class="ph-sub">'+repByKey(rep).name+'</div></div><button class="btn-save" onclick="openNewTabModal(\''+rep+'\')">+ Nouvel onglet</button></div>'+tabBar+contentHtml;
-}
-function setCustomTab(rep,i){customTabActive[rep]=i;showSection('custom-tabs');}
-function saveCustomContent(rep,i){var el=document.getElementById('customContent');if(el&&customTabs[rep][i]){customTabs[rep][i].content=el.value;saveCustomTabToDB(rep,customTabs[rep][i]);}}
-function openNewTabModal(rep){
-  document.getElementById('modalTitle').textContent='Nouvel onglet';
-  document.getElementById('modalBody').innerHTML=
-    '<div class="fg" style="margin-bottom:12px;"><span class="fl">Nom de l\'onglet</span><input class="fi" id="tab_name" placeholder="Ex: Suivi KPIs, Notes clients, Stratégie..."></div>'+
-    '<button class="btn-save" style="width:100%;" onclick="saveNewTab(\''+rep+'\')">Cr\u00e9er l\'onglet</button>';
-  document.getElementById('modalOverlay').classList.add('open');
-}
-function saveNewTab(rep){
-  var name=document.getElementById('tab_name').value.trim();
-  if(!name)return;
-  if(!customTabs[rep])customTabs[rep]=[];
-  var tab={name:name,content:'',sort_order:customTabs[rep].length};
-  saveCustomTabToDB(rep,tab).then(function(newId){if(newId)tab._id=newId;customTabs[rep].push(tab);customTabActive[rep]=customTabs[rep].length-1;closeModal();showSection('custom-tabs');});
-}
-function editCustomTab(rep,i){
-  document.getElementById('modalTitle').textContent='Renommer l\'onglet';
-  document.getElementById('modalBody').innerHTML=
-    '<div class="fg" style="margin-bottom:12px;"><span class="fl">Nouveau nom</span><input class="fi" id="tab_rename" value="'+esc((customTabs[rep][i]||{}).name||'')+'"></div>'+
-    '<button class="btn-save" style="width:100%;" onclick="renameTab(\''+rep+'\','+i+')">Renommer</button>';
-  document.getElementById('modalOverlay').classList.add('open');
-}
-function renameTab(rep,i){var n=document.getElementById('tab_rename').value.trim();if(n&&customTabs[rep][i]){customTabs[rep][i].name=n;saveCustomTabToDB(rep,customTabs[rep][i]);}closeModal();showSection('custom-tabs');}
-async function delCustomTab(rep,i){if(confirm('Supprimer cet onglet ?')){var t=customTabs[rep][i];if(t&&t._id)await deleteCustomTabFromDB(t._id);customTabs[rep].splice(i,1);if(customTabActive[rep]>=customTabs[rep].length)customTabActive[rep]=Math.max(0,customTabs[rep].length-1);showSection('custom-tabs');}}
 
-// ═══════════════════════════════════════════════════════════════
-// WEEKLY (MANAGER)
-// ═══════════════════════════════════════════════════════════════
-function renderWeekly(){
-  var w=weeklyData;
-  var curWkLabel='Semaine du '+new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
-
-  // Deals closing this week
-  var today=new Date();
-  var dayOfWeek=today.getDay();
-  var mondayOffset=dayOfWeek===0?-6:1-dayOfWeek;
-  var monday=new Date(today);monday.setDate(today.getDate()+mondayOffset);
-  var friday=new Date(monday);friday.setDate(monday.getDate()+4);
-  var monStr=monday.toISOString().split('T')[0];
-  var friStr=friday.toISOString().split('T')[0];
-
-  var weekDeals=[];
-  REPS.forEach(function(rep){
-    (deals[rep.key]||[]).forEach(function(d){
-      if(d.closingDate&&d.closingDate>=monStr&&d.closingDate<=friStr){
-        weekDeals.push({...d,repName:rep.name,repAv:rep.av,repInit:rep.init});
-      }
-    });
-  });
-  (mgrDeals||[]).forEach(function(d){
-    if(d.closingDate&&d.closingDate>=monStr&&d.closingDate<=friStr){
-      weekDeals.push({...d,repName:'Manager',repAv:'av-m',repInit:'M'});
-    }
-  });
-
-  var dealRows=weekDeals.length?weekDeals.map(function(d){
-    return '<tr><td><div class="av '+d.repAv+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+d.repInit+'</div>'+d.repName+'</td>'+
-      '<td><strong>'+esc(d.account)+'</strong></td>'+
-      '<td class="mono">'+fmtGBP(d.rev)+'</td>'+
-      '<td><span class="pill '+stageClass(d.stage)+'">'+d.stage+'</span></td>'+
-      '<td class="mono">'+d.proba+'%</td>'+
-      '<td>'+d.closingDate+'</td>'+
-      '<td style="font-size:10px;color:var(--color-text-tertiary);">'+(d.comment?esc(d.comment).substring(0,40):'\u2014')+'</td>'+
-    '</tr>';
-  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--color-text-tertiary);padding:1rem;">Aucun deal pr\u00e9vu pour fermeture cette semaine.</td></tr>';
-
-  var itemRows=w.items&&w.items.length?w.items.map(function(it,i){
-    var pColor=it.prio==='Urgent'?'var(--red)':it.prio==='Important'?'var(--amber)':'var(--green)';
-    return '<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:.5px solid var(--color-border-tertiary);">'+
-      '<div style="width:7px;height:7px;border-radius:50%;background:'+pColor+';margin-top:4px;flex-shrink:0;"></div>'+
-      '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">'+esc(it.title)+'<span style="font-size:10px;background:var(--color-background-secondary);color:var(--color-text-secondary);padding:1px 6px;border-radius:8px;margin-left:6px;">'+esc(it.rep)+'</span></div>'+
-      (it.notes?'<div style="font-size:11px;color:var(--color-text-secondary);margin-top:2px;">'+esc(it.notes)+'</div>':'')+
-      '</div><button class="btn-sm del" onclick="delWkItem('+i+')">&#x2715;</button></div>';
-  }).join(''):'<div style="color:var(--color-text-tertiary);font-size:12px;padding:1rem 0;">Aucun sujet \u2014 cliquez + Sujet.</div>';
-
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Weekly Manager</div><div class="ph-sub">'+curWkLabel+'</div></div><button class="btn-save" onclick="openWkModal()">+ Sujet</button></div>'+
-    '<div class="grid-2">'+
-      '<div class="card">'+
-        '<div class="card-title">KPIs semaine \u00e9quipe</div>'+
-        '<div class="form-row cols-2">'+
-          '<div class="fg"><span class="fl">Nb apps back</span><input class="fi" type="number" id="wk_apps_back" value="'+(w.appsBack||0)+'" onblur="saveWkNum(\'appsBack\',this.value)"></div>'+
-          '<div class="fg"><span class="fl">Ouvertures de comptes</span><input class="fi" type="number" id="wk_openings" value="'+(w.accountOpenings||0)+'" onblur="saveWkNum(\'accountOpenings\',this.value)"></div>'+
-          '<div class="fg"><span class="fl">Nb de FT</span><input class="fi" type="number" id="wk_ft" value="'+(w.ftCount||0)+'" onblur="saveWkNum(\'ftCount\',this.value)"></div>'+
-          '<div class="fg"><span class="fl">RDV pr\u00e9vus</span><input class="fi" type="number" id="wk_rdv" value="'+(w.rdvCount||0)+'" onblur="saveWkNum(\'rdvCount\',this.value)"></div>'+
-          '<div class="fg" style="grid-column:1/-1;"><span class="fl">Revenu \u00e9quipe (\xA3)</span><input class="fi" type="number" id="wk_rev" value="'+(w.teamRevenue||0)+'" onblur="saveWkNum(\'teamRevenue\',this.value)"></div>'+
-        '</div>'+
+  return '<div class="card" style="margin-bottom:1rem;">'+
+      '<div class="card-title">KPIs du mois</div>'+kpiRows+'</div>'+
+    '<div class="card" style="margin-bottom:1rem;">'+
+      '<div class="card-title">Activit\u00e9 du mois</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">'+
+        '<div class="kpi"><div class="kpi-lbl">Apps ouverture compte</div><input class="fi" type="number" id="r_app_open" style="margin-top:4px;" value="'+(saved.r_app_open||'')+'" onblur="saveMonthlyRecapField(\''+rep+'\',\''+m+'\',\'r_app_open\')"></div>'+
+        '<div class="kpi"><div class="kpi-lbl">FT (rev)</div><input class="fi" type="number" id="r_ft" style="margin-top:4px;" value="'+(saved.r_ft||'')+'" onblur="saveMonthlyRecapField(\''+rep+'\',\''+m+'\',\'r_ft\')"></div>'+
+        '<div class="kpi"><div class="kpi-lbl">RDV book\u00e9s SF</div><input class="fi" type="number" id="r_rdv" style="margin-top:4px;" value="'+(saved.r_rdv||'')+'" onblur="saveMonthlyRecapField(\''+rep+'\',\''+m+'\',\'r_rdv\')"></div>'+
+        '<div class="kpi"><div class="kpi-lbl">Qualif (grade)</div><input class="fi" type="number" id="r_qualif" style="margin-top:4px;" value="'+(saved.r_qualif||'')+'" onblur="saveMonthlyRecapField(\''+rep+'\',\''+m+'\',\'r_qualif\')"></div>'+
       '</div>'+
-      '<div class="card">'+
-        '<div class="card-title">Clients &gt;5k\xA3 cette semaine</div>'+
-        '<textarea class="fi" style="width:100%;min-height:80px;" id="wk_big_clients" onblur="saveWkField(\'bigClients\')">'+(w.bigClients||'')+'</textarea>'+
-        '<div class="card-title" style="margin-top:12px;">Sujets de la semaine</div>'+
-        itemRows+
-      '</div>'+
+      ta('r_strat','Nouvelles strat\u00e9gies FX travaill\u00e9es','EUR/USD, couverture...','var(--ebury-blue-d)')+
+      ta('r_forecast','Forecast 3 prochains mois SF','Pipeline M+1, M+2, M+3...','var(--ebury-blue-d)')+
+      ta('r_other','Autres sujets (netting, exos, big fish LT...)','Opportunit\u00e9s moyen/long terme...','var(--muted)')+
     '</div>'+
     '<div class="card">'+
-      '<div class="card-title">Deals pr\u00e9vus cette semaine \u2014 closing du '+monday.toLocaleDateString('fr-FR')+' au '+friday.toLocaleDateString('fr-FR')+'</div>'+
-      '<div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Commercial</th><th>Compte</th><th>Rev. estim\u00e9</th><th>\u00c9tape</th><th>Proba</th><th>Closing</th><th>Commentaire</th></tr></thead><tbody>'+dealRows+'</tbody></table></div>'+
+      '<div class="card-title">Analyse &amp; r\u00e9trospective</div>'+
+      ta('r_pipe_rotation','Rotation pipe (leads, deals, CT...)','\u00c9volution du pipeline ce mois...','var(--amber)')+
+      ta('r_autoanalysis','Auto-analyse (+ / \u2013)','Points positifs et n\u00e9gatifs du mois...','var(--amber)')+
+      ta('r_obj_perso','Objectifs qualitatifs / personnels','D\u00e9veloppement personnel...','var(--green)')+
+      ta('r_problems','Probl\u00e8mes rencontr\u00e9s &amp; solutions','Obstacles et solutions mises en place...','var(--red)')+
     '</div>';
+}
+
+function saveMonthlyRecapField(rep, m, fieldId){
+  var key=(rep||'')+'_'+m;
+  if(!recapData[key])recapData[key]={};
+  var el=document.getElementById(fieldId);
+  if(el)recapData[key][fieldId]=el.value;
+  saveRecapToDB(key,recapData[key]);
 }
 
 var selectedMgrMonth=getCurrentMonthKey();
@@ -1542,11 +1541,13 @@ function renderMonthly(){
   var FMONTHS=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
   var MLABELS={'2026-05':'Mai 26','2026-06':'Juin 26','2026-07':'Juil 26','2026-08':'A\u00fbt 26','2026-09':'Sep 26','2026-10':'Oct 26','2026-11':'Nov 26','2026-12':'D\u00e9c 26','2027-01':'Jan 27','2027-02':'F\u00e9v 27','2027-03':'Mar 27','2027-04':'Avr 27'};
   var m=selectedMgrMonth;
+
+  var monthBtns=FMONTHS.map(function(mo){
+    return '<button class="q-btn'+(mo===m?' active':'')+'" style="font-size:10px;padding:3px 10px;" onclick="selectedMgrMonth=\''+mo+'\';showSection(\'monthly\')">'+MLABELS[mo]+'</button>';
+  }).join('');
+
+  // Build team table
   var weeks=getWeeksInMonth(m);
-
-  function getRepReal(repKey,kpi){ return sumWeeks(repKey,weeks,kpi); }
-  function getRepTgt(repKey,kpi){ return ((weeklyTargets[repKey]||{})[m]||{})[kpi]||0; }
-
   var KPIS=[
     {key:'rev',label:'Net Rev.',isMoney:true},
     {key:'apps',label:'Apps',isMoney:false},
@@ -1554,46 +1555,47 @@ function renderMonthly(){
     {key:'meeting',label:'Meeting',isMoney:false},
     {key:'opportunity',label:'Opport.',isMoney:false}
   ];
+  function getRepReal(repKey,kpi){ return sumWeeks(repKey,weeks,kpi); }
+  function getRepTgt(repKey,kpi){ return ((weeklyTargets[repKey]||{})[m]||{})[kpi]||0; }
 
-  // Build rows
-  var rows='';
-  // Team total row
-  var teamVals={};
-  var teamTgts={};
+  var teamVals={};var teamTgts={};
   KPIS.forEach(function(k){
     teamVals[k.key]=REPS.reduce(function(s,r){return s+getRepReal(r.key,k.key);},0);
     teamTgts[k.key]=REPS.reduce(function(s,r){return s+getRepTgt(r.key,k.key);},0);
   });
+
+  var rows='';
   var tp=teamTgts.rev>0?Math.round(teamVals.rev/teamTgts.rev*100):0;
   rows+='<tr style="background:var(--color-background-secondary);font-weight:600;"><td>\u00c9quipe</td>';
-  rows+='<td class="mono">'+fmtGBP(teamVals.rev)+'</td><td class="mono">'+(teamTgts.rev?fmtGBP(teamTgts.rev):'\u2014')+'</td>';
-  rows+='<td>'+badge(tp)+'</td>';
+  rows+='<td class="mono">'+fmtGBP(teamVals.rev)+'</td><td class="mono">'+(teamTgts.rev?fmtGBP(teamTgts.rev):'\u2014')+'</td><td>'+badge(tp)+'</td>';
   KPIS.slice(1).forEach(function(k){rows+='<td>'+teamVals[k.key]+'</td>';});
   rows+='</tr>';
 
-  // Per rep rows
   REPS.forEach(function(rep){
-    var rv=getRepReal(rep.key,'rev');
-    var rt=getRepTgt(rep.key,'rev');
+    var rv=getRepReal(rep.key,'rev');var rt=getRepTgt(rep.key,'rev');
     var rp=rt>0?Math.round(rv/rt*100):0;
     rows+='<tr><td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+rep.init+'</div>'+rep.name+'</td>';
-    rows+='<td class="mono">'+fmtGBP(rv)+'</td><td class="mono">'+(rt?fmtGBP(rt):'\u2014')+'</td>';
-    rows+='<td>'+badge(rp)+'</td>';
-    KPIS.slice(1).forEach(function(k){rows+='<td>'+getRepReal(rep.key,k.key)+(getRepTgt(rep.key,k.key)?'/<span style="color:var(--color-text-tertiary);">'+getRepTgt(rep.key,k.key)+'</span>':'')+'</td>';});
+    rows+='<td class="mono">'+fmtGBP(rv)+'</td><td class="mono">'+(rt?fmtGBP(rt):'\u2014')+'</td><td>'+badge(rp)+'</td>';
+    KPIS.slice(1).forEach(function(k){rows+='<td>'+getRepReal(rep.key,k.key)+'</td>';});
     rows+='</tr>';
   });
 
-  var monthBtns=FMONTHS.map(function(mo){
-    return '<button class="q-btn'+(mo===m?' active':'')+'" style="font-size:10px;padding:3px 10px;" onclick="selectedMgrMonth=\''+mo+'\';showSection(\'monthly\')">'+MLABELS[mo]+'</button>';
-  }).join('');
+  // Active rep tab for recap
+  var activeRecapRep=window._mgrRecapRep||'julien';
+  var recapRepTabs=REPS.map(function(r){return '<button class="q-btn'+(activeRecapRep===r.key?' active':'')+'" onclick="window._mgrRecapRep=\''+r.key+'\';showSection(\'monthly\')">'+r.name+'</button>';}). join('');
 
   return '<div class="ph">'+backBtn()+'<div><div class="ph-title">R\u00e9cap mensuel</div><div class="ph-sub">\u00c9quipe \u2014 '+(MLABELS[m]||m)+'</div></div></div>'+
-    '<div class="card">'+
+    '<div class="card" style="margin-bottom:1rem;">'+
       '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;">'+monthBtns+'</div>'+
       '<div style="overflow-x:auto;"><table class="tbl">'+
         '<thead><tr><th>Commercial</th><th>Net Rev.</th><th>Target</th><th>Att.</th>'+KPIS.slice(1).map(function(k){return'<th>'+k.label+'</th>';}).join('')+'</tr></thead>'+
         '<tbody>'+rows+'</tbody>'+
       '</table></div>'+
+    '</div>'+
+    '<div class="card" style="margin-bottom:1rem;">'+
+      '<div class="card-title">R\u00e9cap d\u00e9taill\u00e9 par commercial</div>'+
+      '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">'+recapRepTabs+'</div>'+
+      getMonthlyRecapContent(activeRecapRep,m,MLABELS)+
     '</div>';
 }
 
@@ -1739,34 +1741,70 @@ function saveNote(key){
 // ═══════════════════════════════════════════════════════════════
 function renderAnnualTarget(){
   var t=annualTeamTarget;
-  var currentFY=annualTeamTarget.fiscal_year||'2025-26';
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Target annuelle \u00e9quipe</div><div class="ph-sub">Objectifs globaux par ann\u00e9e fiscale</div></div></div>'+
-    '<div class="card" style="max-width:480px;">'+
-      '<div class="card-title">Ann\u00e9e fiscale</div>'+
-      '<div class="form-row cols-2" style="margin-bottom:1.25rem;">'+
-        '<div class="fg"><span class="fl">Ann\u00e9e fiscale (ex: 2025-26)</span><input class="fi" id="at_fy" value="'+currentFY+'" placeholder="2025-26"></div>'+
-      '</div>'+
-      '<div class="card-title">Objectifs annuels \u00e9quipe</div>'+
-      '<div class="form-row cols-2">'+
-        '<div class="fg"><span class="fl">Net Revenue total (\xA3)</span><input class="fi" type="number" id="at_rev" value="'+(t.rev||'')+'" min="0" step="1000"></div>'+
-        '<div class="fg"><span class="fl">Negotiating total (\xA3)</span><input class="fi" type="number" id="at_pipe" value="'+(t.pipeline||'')+'" min="0" step="1000"></div>'+
-      '</div>'+
-      '<button class="btn-save" onclick="saveAnnualTarget()">Mettre \u00e0 jour</button>'+
-    '</div>';
+  var currentFY=annualTeamTarget.fiscal_year||'2026-27';
+  var FISCAL_MONTHS=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
+  var MLABELS={'2026-05':'Mai 26','2026-06':'Juin 26','2026-07':'Juil 26','2026-08':'A\u00fbt 26','2026-09':'Sep 26','2026-10':'Oct 26','2026-11':'Nov 26','2026-12':'D\u00e9c 26','2027-01':'Jan 27','2027-02':'F\u00e9v 27','2027-03':'Mar 27','2027-04':'Avr 27'};
+  var activeRep=window._annualTargetRep||'julien';
+  var activeMonth=window._annualTargetMonth||FISCAL_MONTHS[0];
+  var repTabs=REPS.map(function(r){return '<button class="q-btn'+(activeRep===r.key?' active':'')+'" onclick="setAnnualRep(\''+r.key+'\')">'+r.name+'</button>';}).join('');
+  var monthBtns=FISCAL_MONTHS.map(function(m){return '<button class="q-btn'+(m===activeMonth?' active':'')+'" style="font-size:10px;padding:3px 8px;" onclick="setAnnualMonth(\''+m+'\')">'+MLABELS[m]+'</button>';}).join('');
+  var mt=(weeklyTargets[activeRep]||{})[activeMonth]||{};
+  var repTotals=REPS.map(function(r){return{key:r.key,name:r.name,av:r.av,init:r.init,total:FISCAL_MONTHS.reduce(function(s,m){return s+(((weeklyTargets[r.key]||{})[m]||{}).rev||0);},0)};});
+  var teamTotal=repTotals.reduce(function(s,r){return s+r.total;},0);
+  var delta=(t.rev||0)-teamTotal;
+  var repRows=repTotals.map(function(r){return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:12px;"><span><div class="av '+r.av+'" style="width:20px;height:20px;font-size:9px;display:inline-flex;margin-right:5px;">'+r.init+'</div>'+r.name+'</span><span class="mono" style="font-weight:500;">'+fmtGBP(r.total)+'</span></div>';}).join('');
+
+  var html='<div class="ph">'+backBtn()+'<div><div class="ph-title">Target annuelle \u00e9quipe</div><div class="ph-sub">Setup du dashboard \u2014 FY '+currentFY+'</div></div></div>';
+  html+='<div class="grid-2">';
+
+  // LEFT: FY Team target
+  html+='<div class="card">';
+  html+='<div class="card-title">Target FY \u00e9quipe</div>';
+  html+='<div class="fg"><span class="fl">Ann\u00e9e fiscale</span><input class="fi" id="at_fy" value="'+currentFY+'" placeholder="2026-27"></div>';
+  html+='<div class="fg"><span class="fl">FY Net Revenue \u00e9quipe (\xA3)</span><input class="fi" type="number" id="at_rev" value="'+(t.rev||'')+'" min="0" step="1000"></div>';
+  html+='<button class="btn-save" onclick="saveAnnualTarget()" style="margin-bottom:1rem;">Mettre \u00e0 jour</button>';
+  html+='<div style="padding-top:1rem;border-top:.5px solid var(--color-border-tertiary);">';
+  html+='<div class="card-title">Somme targets mensuelles</div>';
+  html+=repRows;
+  html+='<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;font-weight:600;border-top:.5px solid var(--color-border-tertiary);margin-top:4px;"><span>Total</span><span class="mono">'+fmtGBP(teamTotal)+'</span></div>';
+  html+='<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;"><span style="color:var(--color-text-secondary);">Delta vs FY target</span><span class="mono" style="color:'+(delta>=0?'var(--green)':'var(--red)')+';">'+(delta>=0?'+':'')+fmtGBP(delta)+'</span></div>';
+  html+='</div></div>';
+
+  // RIGHT: Monthly targets per rep
+  html+='<div class="card">';
+  html+='<div class="card-title">Targets mensuelles par commercial</div>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabs+'</div>';
+  html+='<div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;">'+monthBtns+'</div>';
+  html+='<div style="font-size:12px;font-weight:500;color:var(--ebury-blue-d);margin-bottom:10px;">'+(MLABELS[activeMonth]||activeMonth)+' \u2014 '+repByKey(activeRep).name+'</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+  html+='<div class="fg"><span class="fl">Target Net Revenue (\xA3)</span><input class="fi" type="number" id="mt_rev" value="'+(mt.rev||'')+'" min="0" step="100"></div>';
+  html+='<div class="fg"><span class="fl">Target Apps</span><input class="fi" type="number" id="mt_apps" value="'+(mt.apps||'')+'" min="0"></div>';
+  html+='<div class="fg"><span class="fl">Target Clients</span><input class="fi" type="number" id="mt_clients" value="'+(mt.clients||'')+'" min="0"></div>';
+  html+='<div class="fg"><span class="fl">Target Meeting</span><input class="fi" type="number" id="mt_meeting" value="'+(mt.meeting||'')+'" min="0"></div>';
+  html+='<div class="fg"><span class="fl">Target Opportunity</span><input class="fi" type="number" id="mt_opportunity" value="'+(mt.opportunity||'')+'" min="0"></div>';
+  html+='</div>';
+  html+='<button class="btn-save" onclick="saveMonthlyTargetFromAnnual()">Enregistrer</button>';
+  html+='</div></div>';
+  return html;
+}
+function setAnnualRep(r){window._annualTargetRep=r;showSection('annual-target');}
+function setAnnualMonth(m){window._annualTargetMonth=m;showSection('annual-target');}
+async function saveMonthlyTargetFromAnnual(){
+  var rep=window._annualTargetRep||'julien';
+  var m=window._annualTargetMonth||'2026-05';
+  var data={rev:parseFloat(document.getElementById('mt_rev').value)||0,apps:parseInt(document.getElementById('mt_apps').value)||0,clients:parseInt(document.getElementById('mt_clients').value)||0,meeting:parseInt(document.getElementById('mt_meeting').value)||0,opportunity:parseInt(document.getElementById('mt_opportunity').value)||0,negotiating:0};
+  if(!weeklyTargets[rep])weeklyTargets[rep]={};
+  weeklyTargets[rep][m]=data;
+  showLoading('Sauvegarde...');
+  await saveMonthlyTargetToDB(rep,m,data);
+  hideLoading();
+  showSection('annual-target');
 }
 function saveAnnualTarget(){
-  var fy=document.getElementById('at_fy')?document.getElementById('at_fy').value.trim():'2025-26';
-  annualTeamTarget={
-    fiscal_year:fy||'2025-26',
-    rev:parseFloat(document.getElementById('at_rev').value)||0,
-    clients:annualTeamTarget.clients||0,
-    pipeline:parseFloat(document.getElementById('at_pipe').value)||0,
-    apps:annualTeamTarget.apps||0
-  };
+  annualTeamTarget={fiscal_year:document.getElementById('at_fy')?document.getElementById('at_fy').value.trim():'2026-27',rev:parseFloat(document.getElementById('at_rev').value)||0,clients:0,meeting:0,opportunity:0,apps:0,pipeline:0};
   saveAnnualTargetToDB(annualTeamTarget).then(function(){alert('Target annuelle mise \u00e0 jour \u2713');});
   showSection('annual-target');
 }
-
 // ═══════════════════════════════════════════════════════════════
 // WEEKLY ENTRY (SALES)
 // ═══════════════════════════════════════════════════════════════
@@ -1900,44 +1938,45 @@ async function saveMonthlyTarget(){
 var teamWeekSelected = getCurrentWeekKey();
 
 function renderTeamWeekly(){
-  var weeks = getFiscalWeeks().slice(0,30);
-  var weekBtns = weeks.map(function(w){
-    var wk=weekKey(w);
-    var isActive=wk===teamWeekSelected;
-    return '<button onclick="selectTeamWeek(\''+wk+'\')" style="padding:4px 10px;font-size:11px;border:0.5px solid '+(isActive?'#6aaec8':'var(--color-border-secondary)')+';border-radius:16px;background:'+(isActive?'#6aaec8':'transparent')+';color:'+(isActive?'#fff':'var(--color-text-secondary)')+';cursor:pointer;white-space:nowrap;margin:2px;">'+weekLabel(w)+'</button>';
+  var weeks=getFiscalWeeks();
+  var wk=teamWeekSelected||getCurrentWeekKey();
+  // Build dropdown options
+  var opts=weeks.map(function(w){
+    var k=weekKey(w);
+    var hasData=REPS.some(function(r){return weeklyKPIs[r.key]&&weeklyKPIs[r.key][k];});
+    return '<option value="'+k+'"'+(k===wk?' selected':'')+'>'+(hasData?'\u2713 ':'')+weekLabel(w)+'</option>';
   }).join('');
 
-  var KPIS = ['rev','negotiating','apps','clients','meeting','opportunity'];
-  var LABELS = {'rev':'Net Rev.','negotiating':'Negotiating','apps':'Apps','clients':'Clients','meeting':'Meeting','opportunity':'Opport.'};
+  var KPIS=['rev','negotiating','apps','clients','meeting','opportunity'];
+  var LABELS={'rev':'Net Rev.','negotiating':'Negotiating','apps':'Apps','clients':'Clients','meeting':'Meeting','opportunity':'Opport.'};
 
-  var rows = '';
-  // Total row
-  var totals = {};
-  KPIS.forEach(function(k){ totals[k]=REPS.reduce(function(s,r){ return s+(((weeklyKPIs[r.key]||{})[teamWeekSelected]||{})[k]||0); },0); });
-  rows += '<tr style="background:var(--color-background-secondary);font-weight:600;">';
-  rows += '<td>Total \u00e9quipe</td>';
-  KPIS.forEach(function(k){ rows += '<td class="mono">'+(k==='rev'?fmtGBP(totals[k]):totals[k])+'</td>'; });
-  rows += '</tr>';
-  // Per rep rows
+  var totals={};
+  KPIS.forEach(function(k){totals[k]=REPS.reduce(function(s,r){return s+(((weeklyKPIs[r.key]||{})[wk]||{})[k]||0);},0);});
+
+  var rows='<tr style="background:var(--color-background-secondary);font-weight:600;"><td>Total \u00e9quipe</td>';
+  KPIS.forEach(function(k){rows+='<td class="mono">'+(k==='rev'?fmtGBP(totals[k]):totals[k])+'</td>';});
+  rows+='</tr>';
   REPS.forEach(function(rep){
-    var d=(weeklyKPIs[rep.key]||{})[teamWeekSelected]||{};
-    rows += '<tr>';
-    rows += '<td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:6px;">'+rep.init+'</div>'+rep.name+'</td>';
-    KPIS.forEach(function(k){ rows += '<td class="mono">'+(k==='rev'?fmtGBP(d[k]||0):(d[k]||0))+'</td>'; });
-    rows += '</tr>';
+    var d=(weeklyKPIs[rep.key]||{})[wk]||{};
+    rows+='<tr><td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+rep.init+'</div>'+rep.name+'</td>';
+    KPIS.forEach(function(k){rows+='<td class="mono">'+(k==='rev'?fmtGBP(d[k]||0):(d[k]||0))+'</td>';});
+    rows+='</tr>';
   });
-
-  var thCells = KPIS.map(function(k){ return '<th>'+LABELS[k]+'</th>'; }).join('');
 
   return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Hebdo \u00e9quipe</div><div class="ph-sub">Vue consolid\u00e9e par semaine \u2014 manager</div></div></div>'+
     '<div class="card">'+
       '<div class="card-title">S\u00e9lectionner la semaine</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">'+weekBtns+'</div>'+
-      '<div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Commercial</th>'+thCells+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">'+
+        '<select class="fi" style="width:auto;min-width:220px;" onchange="teamWeekSelected=this.value;showSection(\'team-weekly\')">'+opts+'</select>'+
+        '<span style="font-size:11px;color:var(--color-text-tertiary);">Mai 2026 \u2192 Avr 2027 (52 semaines)</span>'+
+      '</div>'+
+      '<div style="overflow-x:auto;"><table class="tbl">'+
+        '<thead><tr><th>Commercial</th>'+KPIS.map(function(k){return'<th>'+LABELS[k]+'</th>';}).join('')+'</tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table></div>'+
     '</div>';
 }
-function selectTeamWeek(wk){ teamWeekSelected=wk; showSection('team-weekly'); }
-
+function selectTeamWeek(wk){teamWeekSelected=wk;showSection('team-weekly');}
 // ═══════════════════════════════════════════════════════════════
 // MTD / QTD / FY PERFORMANCE TABLE (MANAGER)
 // ═══════════════════════════════════════════════════════════════
@@ -2018,12 +2057,6 @@ function renderPerfMTD(){
         '</tr></thead>'+
         '<tbody>'+rows+'</tbody>'+
       '</table>'+
-      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'+
-        '<span style="font-size:10px;color:var(--color-text-tertiary);">Codes couleur :</span>'+
-        '<span class="badge b-ok">\u2265 75% \u2014 vert</span>'+
-        '<span class="badge b-warn">50\u201375% \u2014 orange</span>'+
-        '<span class="badge b-danger">< 50% \u2014 rouge</span>'+
-      '</div>'+
     '</div>';
 }
 
