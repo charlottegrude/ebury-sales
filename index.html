@@ -369,7 +369,7 @@ async function loadPersisted(){
     var {data:dbPerf} = await sb.from('perf_data').select('*');
     if(dbPerf){
       var mgrRows=dbPerf.filter(function(d){return d.rep==='manager';});
-      mgrRows.forEach(function(d){if(d.quarter>=0&&d.quarter<=3)mgrPerfData[d.quarter]={rev:d.rev||0,clients:0,pipeline:d.negociating||0,apps:0};});
+      mgrRows.forEach(function(d){if(d.quarter>=0&&d.quarter<=3)mgrPerfData[d.quarter]={rev:d.rev||0,clients:0,pipeline:d.negotiating||0,apps:0};});
       perfData=[
         [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}],
         [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}],
@@ -377,7 +377,7 @@ async function loadPersisted(){
       ];
       dbPerf.forEach(function(d){
         var ri=REPS.findIndex(function(r){return r.key===d.rep;});
-        if(ri>=0&&d.quarter>=0&&d.quarter<=3) perfData[ri][d.quarter]={rev:d.rev||0,clients:d.clients||0,pipeline:d.negociating||0,apps:d.apps||0};
+        if(ri>=0&&d.quarter>=0&&d.quarter<=3) perfData[ri][d.quarter]={rev:d.rev||0,clients:d.clients||0,pipeline:d.negotiating||0,apps:d.apps||0};
       });
     }
     // Load targets
@@ -390,7 +390,7 @@ async function loadPersisted(){
       ];
       dbTgt.forEach(function(d){
         var ri=REPS.findIndex(function(r){return r.key===d.rep;});
-        if(ri>=0&&d.quarter>=0&&d.quarter<=3) perfTargets[ri][d.quarter]={rev:d.rev||0,clients:d.clients||0,pipeline:d.negociating||0,apps:d.apps||0};
+        if(ri>=0&&d.quarter>=0&&d.quarter<=3) perfTargets[ri][d.quarter]={rev:d.rev||0,clients:d.clients||0,pipeline:d.negotiating||0,apps:d.apps||0};
       });
     }
     // Load monthly subjects
@@ -422,7 +422,25 @@ async function loadPersisted(){
     // Load annual target
     var {data:dbAts} = await sb.from('annual_target').select('*').order('updated_at',{ascending:false}).limit(1);
     var dbAt=dbAts&&dbAts[0];
-    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2025-26',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negociating||0,apps:dbAt.apps||0};
+    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2025-26',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negotiating||0,apps:dbAt.apps||0};
+    // Load weekly KPIs
+    var {data:dbWKPIs} = await sb.from('weekly_kpis').select('*');
+    if(dbWKPIs){
+      weeklyKPIs={};
+      dbWKPIs.forEach(function(d){
+        if(!weeklyKPIs[d.rep])weeklyKPIs[d.rep]={};
+        weeklyKPIs[d.rep][d.week_start]={rev:d.rev||0,negotiating:d.negotiating||0,apps:d.apps||0,clients:d.clients||0,meeting:d.meeting||0,opportunity:d.opportunity||0};
+      });
+    }
+    // Load monthly targets
+    var {data:dbMTgts} = await sb.from('monthly_targets').select('*');
+    if(dbMTgts){
+      weeklyTargets={};
+      dbMTgts.forEach(function(d){
+        if(!weeklyTargets[d.rep])weeklyTargets[d.rep]={};
+        weeklyTargets[d.rep][d.month_key]={rev:d.rev||0,negotiating:d.negotiating||0,apps:d.apps||0,clients:d.clients||0,meeting:d.meeting||0,opportunity:d.opportunity||0};
+      });
+    }
   } catch(e){ console.error('Load error:',e); }
   hideLoading();
 }
@@ -443,10 +461,10 @@ async function deleteDealFromDB(id){ await sb.from('deals').delete().eq('id',id)
 
 async function savePerfToDB(repKey, quarter, d){
   var ri=REPS.findIndex(function(r){return r.key===repKey;});
-  await sb.from('perf_data').upsert({rep:repKey,quarter:quarter,rev:d.rev,clients:d.clients,negociating:d.pipeline,apps:d.apps,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'});
+  await sb.from('perf_data').upsert({rep:repKey,quarter:quarter,rev:d.rev,clients:d.clients,negotiating:d.pipeline,apps:d.apps,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'});
 }
 async function saveTargetToDB(repKey, quarter, t){
-  await sb.from('targets').upsert({rep:repKey,quarter:quarter,rev:t.rev,clients:t.clients,negociating:t.pipeline,apps:t.apps,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'});
+  await sb.from('targets').upsert({rep:repKey,quarter:quarter,rev:t.rev,clients:t.clients,negotiating:t.pipeline,apps:t.apps,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'});
 }
 async function saveMSubjectToDB(rep, subject){
   var row={rep:rep,month:subject.month,date:subject.date||null,account:subject.account,volume:subject.volume,currency:subject.currency,potential:subject.potential,followup:subject.followup,is_pipe:subject.isPipe,is_demo:subject.isDemo};
@@ -473,6 +491,14 @@ async function saveWkItemToDB(item){
   return data?data.id:null;
 }
 async function deleteWkItemFromDB(id){ await sb.from('weekly_items').delete().eq('id',id); }
+async function saveWeeklyKPIToDB(repKey, wk, data){
+  var row={rep:repKey,week_start:wk,rev:data.rev||0,negotiating:data.negotiating||0,apps:data.apps||0,clients:data.clients||0,meeting:data.meeting||0,opportunity:data.opportunity||0,updated_at:new Date().toISOString()};
+  await sb.from('weekly_kpis').upsert(row,{onConflict:'rep,week_start'});
+}
+async function saveMonthlyTargetToDB(repKey, monthKey, data){
+  var row={rep:repKey,month_key:monthKey,rev:data.rev||0,negotiating:data.negotiating||0,apps:data.apps||0,clients:data.clients||0,meeting:data.meeting||0,opportunity:data.opportunity||0,updated_at:new Date().toISOString()};
+  await sb.from('monthly_targets').upsert(row,{onConflict:'rep,month_key'});
+}
 async function saveRecapToDB(month, data){
   await sb.from('recap_data').upsert({month:month,done:data.done,plan:data.plan,blockers:data.blockers,improve:data.improve,updated_at:new Date().toISOString()},{onConflict:'month'});
 }
@@ -484,7 +510,7 @@ async function saveCustomTabToDB(rep, tab){
 async function deleteCustomTabFromDB(id){ await sb.from('custom_tabs').delete().eq('id',id); }
 async function saveAnnualTargetToDB(t){
   var fy=t.fiscal_year||'2025-26';
-  await sb.from('annual_target').upsert({fiscal_year:fy,rev:t.rev,clients:t.clients||0,negociating:t.pipeline||0,apps:t.apps||0,updated_at:new Date().toISOString()},{onConflict:'fiscal_year'});
+  await sb.from('annual_target').upsert({fiscal_year:fy,rev:t.rev,clients:t.clients||0,negotiating:t.pipeline||0,apps:t.apps||0,updated_at:new Date().toISOString()},{onConflict:'fiscal_year'});
 }
 
 // Deals per rep
@@ -498,6 +524,52 @@ let mgrPerfData = [
 ];
 
 // Weekly data (manager)
+let weeklyKPIs = {}; // {rep: {'2026-05-04': {rev,negotiating,apps,clients,meeting,opportunity}, ...}}
+let weeklyTargets = {}; // {rep: {'2026-05': {rev,negotiating,apps,clients,meeting,opportunity}}} monthly targets
+let currentFiscalYear = '2026-27';
+let fiscalStart = new Date('2026-05-01');
+
+function getFiscalWeeks(){
+  var weeks=[];
+  var d=new Date(fiscalStart);
+  var end=new Date('2027-05-01');
+  while(d<end){
+    weeks.push(new Date(d));
+    d.setDate(d.getDate()+7);
+  }
+  return weeks;
+}
+function weekKey(d){ return d.toISOString().split('T')[0]; }
+function weekLabel(d){
+  var days=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  var months=['Jan','Fév','Mar','Avr','Mai','Jun','Juil','Août','Sep','Oct','Nov','Déc'];
+  return days[d.getDay()]+' '+d.getDate()+' '+months[d.getMonth()];
+}
+function getMonthKey(d){ return d.toISOString().slice(0,7); }
+function getCurrentWeekKey(){
+  var today=new Date();
+  var day=today.getDay();
+  var diff=today.getDate()-day+(day===0?-6:1);
+  var mon=new Date(today.setDate(diff));
+  return weekKey(mon);
+}
+function getCurrentMonthKey(){ return getMonthKey(new Date()); }
+function getWeeksInMonth(monthKey){
+  return getFiscalWeeks().filter(function(w){ return getMonthKey(w)===monthKey; });
+}
+function getWeeksInQuarter(qIdx){
+  var qMonths=[['2026-05','2026-06','2026-07'],['2026-08','2026-09','2026-10'],['2026-11','2026-12','2027-01'],['2027-02','2027-03','2027-04']];
+  var months=qMonths[qIdx]||[];
+  return getFiscalWeeks().filter(function(w){ return months.indexOf(getMonthKey(w))>=0; });
+}
+function sumWeeks(repKey, weeksList, kpi){
+  var d=weeklyKPIs[repKey]||{};
+  return weeksList.reduce(function(s,w){ var wk=weekKey(w); return s+((d[wk]&&d[wk][kpi])||0); },0);
+}
+function sumAllRepsWeeks(weeksList, kpi){
+  return REPS.reduce(function(s,r){ return s+sumWeeks(r.key,weeksList,kpi); },0);
+}
+
 let weeklyData = {
   anticipatedResult:'',
   appsBack:0, accountOpenings:0, ftCount:0, rdvCount:0,
@@ -532,7 +604,7 @@ function fmtGBP(n){if(!n||isNaN(n))return'\xA30';if(n>=1000000)return'\xA3'+(n/1
 function pct(a,b){return b>0?Math.round(a/b*100):0;}
 function badge(p){if(p>=90)return'<span class="kpi-badge ok">'+p+'% \u2713</span>';if(p>=65)return'<span class="kpi-badge warn">'+p+'% \u26a0</span>';return'<span class="kpi-badge danger">'+p+'% \u2193</span>';}
 function prog(p,color){return'<div class="prog-wrap"><div class="prog" style="width:'+Math.min(p,100)+'%;background:'+color+';"></div></div>';}
-function stageClass(s){var m={'Lead':'p-prospect','Opportunity':'p-qualif','Negociating':'p-nego','Client':'p-won','Lost':'p-lost'};return m[s]||'p-prospect';}
+function stageClass(s){var m={'Lead':'p-prospect','Opportunity':'p-qualif','Negotiating':'p-nego','Client':'p-won','Lost':'p-lost'};return m[s]||'p-prospect';}
 function repByKey(k){return REPS.find(function(r){return r.key===k;})||REPS[0];}
 function repIdx(k){return REPS.findIndex(function(r){return r.key===k;});}
 function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
@@ -618,6 +690,8 @@ function buildNav(){
   html+=navItem('saisie','&#43;','Saisie donn\u00e9es');
   html+='<div class="nav-sep">Commercial</div>';
   html+=navItem('pipe','&#9645;','Sales');
+  html+=navItem('weekly-entry','&#128200;','Ma semaine');
+  html+=navItem('monthly-targets-entry','&#127919;','Mes objectifs mensuels');
   html+=navItem('monthly-subjects','&#128197;','Monthly subjects');
   if(!isManager){
     html+=navItem('sales-weekly','&#128200;','Weekly');
@@ -628,6 +702,8 @@ function buildNav(){
   if(isManager){
     html+='<div class="nav-sep">Manager</div>';
     html+=navItem('team-pipe','&#9646;','Pipe \u00e9quipe','MGR');
+    html+=navItem('team-weekly','&#128202;','Hebdo \u00e9quipe','MGR');
+    html+=navItem('perf-mtd','&#127941;','MTD / QTD / FY','MGR');
     html+=navItem('weekly','&#128197;','Weekly','MGR');
     html+=navItem('monthly','&#128202;','R\u00e9cap mensuel','MGR');
     html+=navItem('mgrpipe','&#128188;','Mon pipe MGR','MGR');
@@ -683,6 +759,10 @@ function renderSection(id){
   else if(id==='sales-quarterly') html=renderSalesQuarterly();
   else if(id==='custom-tabs') html=renderCustomTabs();
   else if(id==='team-pipe') html=renderTeamPipe();
+  else if(id==='weekly-entry') html=renderWeeklyEntry();
+  else if(id==='monthly-targets-entry') html=renderMonthlyTargetsEntry();
+  else if(id==='team-weekly') html=renderTeamWeekly();
+  else if(id==='perf-mtd') html=renderPerfMTD();
   else if(id==='weekly') html=renderWeekly();
   else if(id==='monthly') html=renderMonthly();
   else if(id==='mgrpipe') html=renderMgrPipe();
@@ -696,6 +776,13 @@ function renderSection(id){
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════
+// Build month labels for FY 2026-27
+function buildDashboard(){
+  var months=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
+  var mLabels=['Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc','Jan','Fév','Mar','Avr'];
+  return {months:months,mLabels:mLabels};
+}
+
 function renderDashboard(){
   var q=currentQ, Q=QUARTERS[q];
   var totR=perfData.reduce(function(s,rd){return s+rd[q].rev;},0);
@@ -708,8 +795,10 @@ function renderDashboard(){
   var tgtA=perfTargets.reduce(function(s,rt){return s+rt[q].apps;},0);
   var pR=pct(totR,tgtR),pC=pct(totC,tgtC),pP=pct(totP,tgtP),pA=pct(totA,tgtA);
 
-  var qBtns='';
-  QUARTERS.forEach(function(qq,i){qBtns+='<button class="q-btn'+(i===q?' active':'')+'" onclick="setQ('+i+')">'+qq.label+' '+qq.months+'</button>';});
+  var periodBtns='<button class="dash-period-btn q-btn active" onclick="setDashPeriod(\'week\',this)">Semaine</button>'+
+    '<button class="dash-period-btn q-btn" onclick="setDashPeriod(\'month\',this)">Mois</button>'+
+    '<button class="dash-period-btn q-btn" onclick="setDashPeriod(\'quarter\',this)">Quarter</button>';
+  var qBtns=periodBtns;
 
   var kpis='<div class="grid-4">';
   kpis+='<div class="kpi"><div class="kpi-lbl">Net Revenue '+Q.label+'</div><div class="kpi-val">'+fmtGBP(totR)+'</div><div class="kpi-sub">Cible : '+fmtGBP(tgtR)+'</div>'+badge(pR)+prog(pR,'#6aaec8')+'</div>';
@@ -728,7 +817,7 @@ function renderDashboard(){
   projCards+='</div>';
 
   // Leaderboard
-  var lbSel='<select id="lbKpi" onchange="showSection(\'dashboard\')" style="font-size:11px;padding:2px 4px;border:none;background:transparent;font-family:var(--font);color:var(--muted);cursor:pointer;"><option value="rev">Net Revenue</option><option value="clients">Clients</option><option value="pipeline">Négociating</option><option value="apps">Apps</option></select>';
+  var lbSel='<select id="lbKpi" onchange="showSection(\'dashboard\')" style="font-size:11px;padding:2px 4px;border:none;background:transparent;font-family:var(--font);color:var(--muted);cursor:pointer;"><option value="rev">Net Revenue</option><option value="clients">Clients</option><option value="pipeline">Negotiating</option><option value="apps">Apps</option></select>';
   var lbKey=document.getElementById('lbKpi')?document.getElementById('lbKpi').value:'rev';
   var sorted=perfData.map(function(rd,i){return{val:rd[q][lbKey],tgt:perfTargets[i][q][lbKey],i:i};}).sort(function(a,b){return b.val-a.val;});
   var maxVal=sorted[0].val||1;
@@ -756,11 +845,53 @@ function renderDashboard(){
 
   return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Dashboard \u00e9quipe</div><div class="ph-sub">FY Mai 2025 \u2192 Avr 2026 \u00b7 '+Q.label+' '+Q.months+'</div></div><div class="q-row">'+qBtns+'</div></div>'+
     kpis+
+    (isManager?'':
+    '<div class="card" style="margin-bottom:1rem;">'+
+      '<div style="margin-bottom:12px;">'+
+        '<div class="card-title" style="margin-bottom:6px;">Ma semaine \u2014 '+weekLabel(new Date(getCurrentWeekKey()+'T00:00:00'))+'</div>'+
+        (function(){var d=(weeklyKPIs[currentRep]||{})[getCurrentWeekKey()]||{};
+          return '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;">'+
+            ['rev','negotiating','apps','clients','meeting','opportunity'].map(function(k,i){
+              var lbl=['Net Rev.','Negotiating','Apps','Clients','Meeting','Opport.'][i];
+              var val=k==='rev'?fmtGBP(d[k]||0):(d[k]||0);
+              return '<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">'+lbl+'</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">'+val+'</div></div>';
+            }).join('')+'</div>';
+        })()+
+        '<div style="text-align:right;margin-top:6px;"><button onclick="showSection(\'weekly-entry\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">Saisir / Modifier \u2192</button></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="card" style="margin-bottom:1rem;">'+
+    '<div class="card-title" style="margin-bottom:6px;">Mon mois (MTD)</div>'+
+    (function(){
+      var m=getCurrentMonthKey();
+      var weeks=getWeeksInMonth(m);
+      var mtdRev=sumWeeks(currentRep,weeks,'rev');
+      var mtdTgt=((weeklyTargets[currentRep]||{})[m]||{}).rev||0;
+      var p=mtdTgt>0?Math.round(mtdRev/mtdTgt*100):0;
+      var pColor=p>=75?'#3B6D11':(p>=50?'#854F0B':'#A32D2D');
+      var kc1='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Rev. MTD</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">';
+      var kc2='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">Target MTD</div><div style="font-size:13px;font-weight:500;font-family:var(--font-mono);">';
+      var kc3='<div style="background:var(--color-background-secondary);border-radius:6px;padding:7px;"><div style="font-size:9px;color:var(--color-text-tertiary);">MTD %</div><div style="font-size:13px;font-weight:500;color:'+pColor+';font-family:var(--font-mono);">';
+      return '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">'+
+        kc1+fmtGBP(mtdRev)+'</div></div>'+
+        kc2+(mtdTgt?fmtGBP(mtdTgt):'\u2014')+'</div></div>'+
+        kc3+(mtdTgt?p+'%':'\u2014')+'</div></div>'+
+      '</div>';
+    })()+
+    '<div style="text-align:right;margin-top:6px;"><button onclick="showSection(\'monthly-targets-entry\')" style="font-size:10px;padding:3px 8px;border:0.5px solid #6aaec8;border-radius:6px;background:#eaf4f9;color:#4a8fab;cursor:pointer;">D\u00e9tails \u2192</button></div>'+
+    '</div>'+
+    '</div>')+
     '<div class="grid-2">'+
       '<div class="card"><div class="card-title">Leaderboard \u2014 '+lbSel+'</div>'+lbRows+'</div>'+
       '<div class="card"><div class="card-title">Alertes &amp; projections</div>'+alHtml+projCards+'</div>'+
     '</div>'+
-    '<div class="card"><div class="card-title">Net Revenue \u2014 vue annuelle</div><div class="chart-wrap" style="height:200px;"><canvas id="trendChart" role="img" aria-label="Net revenue par quarter">Net revenue r\u00e9alis\u00e9 vs objectif</canvas></div></div>';
+    '<div class="card"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">'+
+      '<span>Net Revenue \u2014 \u00e9volution mensuelle</span>'+
+      '<div style="display:flex;gap:10px;font-size:11px;">'+
+        REPS.map(function(r,i){var cols=['#059669','#2563EB','#D97706'];return '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+cols[i]+';margin-right:4px;"></span>'+r.name+'</span>';}).join('')+
+      '</div>'+
+    '</div>'+
+    '<div class="chart-wrap" style="height:200px;"><canvas id="trendChart" role="img" aria-label="Net revenue par quarter">Net revenue r\u00e9alis\u00e9 vs objectif</canvas></div></div>';
 }
 
 function setQ(q){
@@ -771,20 +902,26 @@ function setQ(q){
   renderSection('dashboard');
 }
 
-function initDashChart(){
+function renderMonthlyChart(){ setTimeout(initMonthlyChart, 50); }
+function initDashChart(){ initMonthlyChart(); }
+function initMonthlyChart(){
   var canvas=document.getElementById('trendChart');
   if(!canvas)return;
-  var labels=QUARTERS.map(function(q){return q.label+' '+q.months;});
-  var real=QUARTERS.map(function(_,qi){return perfData.reduce(function(s,rd){return s+rd[qi].rev;},0);});
-  var tgts=QUARTERS.map(function(_,qi){return perfTargets.reduce(function(s,rt){return s+rt[qi].rev;},0);});
+  var bd=buildDashboard();
+  var repColors=['#059669','#2563EB','#D97706'];
+  var datasets=REPS.map(function(rep,ri){
+    var data=bd.months.map(function(m){
+      return getWeeksInMonth(m).reduce(function(s,w){return s+(((weeklyKPIs[rep.key]||{})[weekKey(w)]||{}).rev||0);},0);
+    });
+    return{label:rep.name,data:data,borderColor:repColors[ri],backgroundColor:'transparent',borderWidth:2,pointRadius:3,pointBackgroundColor:repColors[ri],tension:0.35};
+  });
   if(trendChart)trendChart.destroy();
   trendChart=new Chart(canvas,{
-    type:'bar',
-    data:{labels:labels,datasets:[
-      {label:'R\u00e9alis\u00e9',data:real,backgroundColor:'rgba(106,174,200,0.7)',borderColor:'#6aaec8',borderWidth:1.5,borderRadius:4,order:2},
-      {label:'Objectif',data:tgts,type:'line',borderColor:'#9CA3AF',borderDash:[5,4],borderWidth:1.5,pointRadius:4,pointBackgroundColor:'#9CA3AF',fill:false,order:1}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11},autoSkip:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:11},callback:function(v){return fmtGBP(v);}}}}}
+    type:'line',
+    data:{labels:bd.mLabels,datasets:datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:11},callback:function(v){return fmtGBP(v);}}}}}
   });
 }
 
@@ -816,7 +953,7 @@ function renderSaisie(){
         '<div class="form-row cols-2">'+
           '<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="in_rev" value="'+(d.rev||'')+'" min="0" step="100"></div>'+
           '<div class="fg"><span class="fl">Clients sign\u00e9s</span><input class="fi" type="number" id="in_clients" value="'+(d.clients||'')+'" min="0"></div>'+
-          '<div class="fg"><span class="fl">N\u00e9gociating (\xA3)</span><input class="fi" type="number" id="in_pipe" value="'+(d.pipeline||'')+'" min="0" step="500"></div>'+
+          '<div class="fg"><span class="fl">Negotiating (nb)</span><input class="fi" type="number" id="in_pipe" value="'+(d.pipeline||'')+'" min="0" step="1"></div>'+
           '<div class="fg"><span class="fl">Apps soumises</span><input class="fi" type="number" id="in_apps" value="'+(d.apps||'')+'" min="0"></div>'+
         '</div>'+
         '<button class="btn-save" onclick="saveData()">Enregistrer</button>'+
@@ -830,7 +967,7 @@ function renderSaisie(){
           '<div class="fg"><span class="fl">Cible Net Revenue (\xA3)</span><input class="fi" type="number" id="t_rev" value="'+(t.rev||'')+'" min="0" step="100"></div>'+
           '<div class="fg"><span class="fl">Cible Clients</span><input class="fi" type="number" id="t_clients" value="'+(t.clients||'')+'" min="0"></div>'+
           '<div class="fg"><span class="fl">Cible Opportunity (\xA3)</span><input class="fi" type="number" id="t_opp" value="'+(t.opportunity||'')+'" min="0" step="100"></div>'+
-          '<div class="fg"><span class="fl">Cible Negociating (\xA3)</span><input class="fi" type="number" id="t_pipe" value="'+(t.pipeline||'')+'" min="0" step="500"></div>'+
+          '<div class="fg"><span class="fl">Cible Negotiating (nb)</span><input class="fi" type="number" id="t_pipe" value="'+(t.pipeline||'')+'" min="0" step="1"></div>'+
           '<div class="fg"><span class="fl">Cible Meeting</span><input class="fi" type="number" id="t_meeting" value="'+(t.meeting||'')+'" min="0"></div>'+
           '<div class="fg"><span class="fl">Cible Apps</span><input class="fi" type="number" id="t_apps" value="'+(t.apps||'')+'" min="0"></div>'+
         '</div>'+
@@ -846,7 +983,7 @@ function renderSaisie(){
       '</div>'+
       '<div class="form-row cols-2">'+
         '<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="mgr_rev" value="'+(mgrPerfData[saisieQ].rev||'')+'" min="0" step="100"></div>'+
-        '<div class="fg"><span class="fl">Negociating (\xA3)</span><input class="fi" type="number" id="mgr_pipe" value="'+(mgrPerfData[saisieQ].pipeline||'')+'" min="0" step="500"></div>'+
+        '<div class="fg"><span class="fl">Negotiating (\xA3)</span><input class="fi" type="number" id="mgr_pipe" value="'+(mgrPerfData[saisieQ].pipeline||'')+'" min="0" step="1"></div>'+
       '</div>'+
       '<button class="btn-save" onclick="saveMgrPerf()">Enregistrer</button>'+
     '</div>'
@@ -856,7 +993,7 @@ function renderSaisie(){
 function saveMgrPerf(){
   mgrPerfData[saisieQ].rev=parseFloat(document.getElementById('mgr_rev').value)||0;
   mgrPerfData[saisieQ].pipeline=parseFloat(document.getElementById('mgr_pipe').value)||0;
-  sb.from('perf_data').upsert({rep:'manager',quarter:saisieQ,rev:mgrPerfData[saisieQ].rev,clients:0,negociating:mgrPerfData[saisieQ].pipeline,apps:0,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'}).then(function(){showSection('saisie');});
+  sb.from('perf_data').upsert({rep:'manager',quarter:saisieQ,rev:mgrPerfData[saisieQ].rev,clients:0,negotiating:mgrPerfData[saisieQ].pipeline,apps:0,updated_at:new Date().toISOString()},{onConflict:'rep,quarter'}).then(function(){showSection('saisie');});
 }
 function setSaisieRep(i){saisieRep=i;showSection('saisie');}
 function setSaisieQ(i){saisieQ=i;showSection('saisie');}
@@ -923,7 +1060,7 @@ function renderPipe(){
       tbody+='<td>'+typePill+'</td>';
       tbody+='<td><strong>'+esc(d.account)+'</strong></td>';
       tbody+='<td class="mono">'+fmtGBP(d.rev)+'</td>';
-      tbody+='<td><select style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-secondary);font-family:var(--font);cursor:pointer;" onchange="updateDealStage(\'' + rep + '\','+dIdx+',this.value)">'+['Lead','Opportunity','Negociating','Client','Lost'].map(function(s){return '<option value="'+s+'"'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>';
+      tbody+='<td><select style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-secondary);font-family:var(--font);cursor:pointer;" onchange="updateDealStage(\'' + rep + '\','+dIdx+',this.value)">'+['Lead','Opportunity','Negotiating','Client','Lost'].map(function(s){return '<option value="'+s+'"'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>';
       tbody+='<td class="mono">'+d.proba+'%</td>';
       tbody+='<td style="font-size:11px;">'+(d.sellCcy||'\u2014')+' / '+(d.buyCcy||'\u2014')+'</td>';
       tbody+='<td class="mono" style="font-size:11px;">'+(d.fxVol?'\xa3'+Number(d.fxVol).toLocaleString():'\u2014')+'</td>';
@@ -969,10 +1106,10 @@ function openDealModal(repKey,editIdx){
       '<div class="fg"><span class="fl">Nom du compte</span><input class="fi" id="d_account" value="'+esc(d.account||'')+'" placeholder="Soci\u00e9t\u00e9 ABC"></div>'+
       '<div class="fg"><span class="fl">Email</span><input class="fi" type="email" id="d_email" value="'+esc(d.email||'')+'" placeholder="contact@societe.com"></div>'+
       '<div class="fg"><span class="fl">Net Rev. estim\u00e9 (\xA3)</span><input class="fi" type="number" id="d_rev" value="'+(d.rev||'')+'" min="0" step="100"></div>'+
-      '<div class="fg"><span class="fl">\u00c9tape</span><select class="fi" id="d_stage">'+['Lead','Opportunity','Negociating','Client','Lost'].map(function(s){return'<option'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg"><span class="fl">\u00c9tape</span><select class="fi" id="d_stage">'+['Lead','Opportunity','Negotiating','Client','Lost'].map(function(s){return'<option'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div>'+
       '<div class="fg"><span class="fl">Probabilit\u00e9 (%)</span><input class="fi" type="number" id="d_proba" value="'+(d.proba||25)+'" min="0" max="100"></div>'+
-      '<div class="fg"><span class="fl">Devise vente</span><select class="fi" id="d_sell">'+CURRENCIES.map(function(c){return'<option'+(d.sellCcy===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
-      '<div class="fg"><span class="fl">Devise achat</span><select class="fi" id="d_buy">'+CURRENCIES.map(function(c){return'<option'+(d.buyCcy===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg"><span class="fl">Devise vente</span><input class="fi" type="text" id="d_sell" value="'+(d.sellCcy||'EUR')+'" placeholder="EUR" maxlength="6"></div>'+
+      '<div class="fg"><span class="fl">Devise achat</span><input class="fi" type="text" id="d_buy" value="'+(d.buyCcy||'GBP')+'" placeholder="GBP" maxlength="6"></div>'+
       '<div class="fg"><span class="fl">Volume FX estim\u00e9 (\xA3)</span><input class="fi" type="number" id="d_fxvol" value="'+(d.fxVol||'')+'" min="0" step="1000"></div>'+
       
       '<div class="fg"><span class="fl">Prochain follow-up</span><input class="fi" type="date" id="d_followup" value="'+(d.followup||'')+'"></div>'+
@@ -1029,7 +1166,7 @@ function renderTeamPipe(){
       allRows+='<td>'+typePill+'</td>';
       allRows+='<td><strong>'+esc(d.account)+'</strong><div style="font-size:10px;color:var(--hint);">'+esc(d.email||'')+'</div></td>';
       allRows+='<td class="mono">'+fmtGBP(d.rev)+'</td>';
-      allRows+='<td><select style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-secondary);font-family:var(--font);cursor:pointer;" onchange="updateDealStage(\'' + rep.key + '\','+idx+',this.value)">'+['Lead','Opportunity','Negociating','Client','Lost'].map(function(s){return '<option value="'+s+'"'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>';
+      allRows+='<td><select style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-secondary);font-family:var(--font);cursor:pointer;" onchange="updateDealStage(\'' + rep.key + '\','+idx+',this.value)">'+['Lead','Opportunity','Negotiating','Client','Lost'].map(function(s){return '<option value="'+s+'"'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></td>';
       allRows+='<td class="mono">'+d.proba+'%</td>';
       allRows+='<td style="font-size:11px;">'+(d.sellCcy||'\u2014')+' / '+(d.buyCcy||'\u2014')+'</td>';
       allRows+='<td class="mono" style="font-size:11px;">'+(d.fxVol?'\xa3'+Number(d.fxVol).toLocaleString():'\u2014')+'</td>';
@@ -1114,7 +1251,6 @@ function openMSubjectModal(rep,editIdx){
     '</div>'+
     '<div class="fg" style="margin-bottom:10px;"><span class="fl">Suite \u00e0 donner</span><textarea class="fi" id="ms_followup">'+esc(s.followup||'')+'</textarea></div>'+
     '<div class="form-row cols-2" style="margin-bottom:12px;">'+
-      '<div class="fg"><span class="fl">Dans le pipe ?</span><select class="fi" id="ms_pipe"><option value="0"'+(s.isPipe?'':' selected')+'>Non</option><option value="1"'+(s.isPipe?' selected':'')+'>Oui</option></select></div>'+
       '<div class="fg"><span class="fl">D\u00e9mo plateforme ?</span><select class="fi" id="ms_demo"><option value="0"'+(s.isDemo?'':' selected')+'>Non</option><option value="1"'+(s.isDemo?' selected':'')+'>Oui</option></select></div>'+
     '</div>'+
     '<button class="btn-save" style="width:100%;" onclick="saveMSubject(\''+rep+'\','+(isEdit?editIdx:-1)+')">Enregistrer</button>';
@@ -1428,7 +1564,7 @@ function openMgrDealModal(editIdx){
       '<div class="fg"><span class="fl">Compte</span><input class="fi" id="md_account" value="'+esc(d.account||'')+'" placeholder="Soci\u00e9t\u00e9"></div>'+
       '<div class="fg"><span class="fl">Email</span><input class="fi" type="email" id="md_email" value="'+esc(d.email||'')+'"></div>'+
       '<div class="fg"><span class="fl">Net Rev. (\xA3)</span><input class="fi" type="number" id="md_rev" value="'+(d.rev||'')+'" min="0" step="100"></div>'+
-      '<div class="fg"><span class="fl">\u00c9tape</span><select class="fi" id="md_stage">'+['Lead','Opportunity','Negociating','Client','Lost'].map(function(s){return'<option'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg"><span class="fl">\u00c9tape</span><select class="fi" id="md_stage">'+['Lead','Opportunity','Negotiating','Client','Lost'].map(function(s){return'<option'+(d.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div>'+
       '<div class="fg"><span class="fl">Proba (%)</span><input class="fi" type="number" id="md_proba" value="'+(d.proba||25)+'" min="0" max="100"></div>'+
       '<div class="fg"><span class="fl">Devise vente</span><select class="fi" id="md_sell">'+CURRENCIES.map(function(c){return'<option'+(d.sellCcy===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
       '<div class="fg"><span class="fl">Devise achat</span><select class="fi" id="md_buy">'+CURRENCIES.map(function(c){return'<option'+(d.buyCcy===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div>'+
@@ -1515,7 +1651,7 @@ function renderAnnualTarget(){
       '<div class="card-title">Objectifs annuels \u00e9quipe</div>'+
       '<div class="form-row cols-2">'+
         '<div class="fg"><span class="fl">Net Revenue total (\xA3)</span><input class="fi" type="number" id="at_rev" value="'+(t.rev||'')+'" min="0" step="1000"></div>'+
-        '<div class="fg"><span class="fl">Negociating total (\xA3)</span><input class="fi" type="number" id="at_pipe" value="'+(t.pipeline||'')+'" min="0" step="1000"></div>'+
+        '<div class="fg"><span class="fl">Negotiating total (\xA3)</span><input class="fi" type="number" id="at_pipe" value="'+(t.pipeline||'')+'" min="0" step="1000"></div>'+
       '</div>'+
       '<button class="btn-save" onclick="saveAnnualTarget()">Mettre \u00e0 jour</button>'+
     '</div>';
@@ -1532,6 +1668,262 @@ function saveAnnualTarget(){
   saveAnnualTargetToDB(annualTeamTarget).then(function(){alert('Target annuelle mise \u00e0 jour \u2713');});
   showSection('annual-target');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// WEEKLY ENTRY (SALES)
+// ═══════════════════════════════════════════════════════════════
+var selectedWeek = null;
+
+function renderWeeklyEntry(){
+  var rep = currentRep;
+  var weeks = getFiscalWeeks();
+  var curWk = getCurrentWeekKey();
+  if(!selectedWeek) selectedWeek = curWk;
+  var kd = (weeklyKPIs[rep]||{})[selectedWeek]||{};
+
+  var weekBtns = weeks.slice(0,26).map(function(w){
+    var wk = weekKey(w);
+    var has = weeklyKPIs[rep]&&weeklyKPIs[rep][wk];
+    var isActive = wk===selectedWeek;
+    return '<button onclick="selectWeek(\''+wk+'\')" style="padding:4px 10px;font-size:11px;border:0.5px solid '+(isActive?'#6aaec8':has?'#3B6D11':'var(--color-border-secondary)')+';border-radius:16px;background:'+(isActive?'#6aaec8':has?'#EAF3DE':'transparent')+';color:'+(isActive?'#fff':has?'#3B6D11':'var(--color-text-secondary)')+';cursor:pointer;white-space:nowrap;margin:2px;">'+weekLabel(w)+'</button>';
+  }).join('');
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Ma semaine</div><div class="ph-sub">'+repByKey(rep).name+' \u2014 saisie hebdomadaire</div></div></div>'+
+    '<div class="card">'+
+      '<div class="card-title">S\u00e9lectionner la semaine</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">'+weekBtns+'</div>'+
+      '<div style="font-size:12px;font-weight:500;margin-bottom:12px;color:var(--ebury-blue-d);">Semaine du '+weekLabel(new Date(selectedWeek+(selectedWeek.length===10?'T00:00:00':'')))+'</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">'+
+        '<div class="fg"><span class="fl">Net Revenue (\xA3)</span><input class="fi" type="number" id="wk_rev" value="'+(kd.rev||'')+'" min="0" step="100"></div>'+
+        '<div class="fg"><span class="fl">Negotiating (nb)</span><input class="fi" type="number" id="wk_nego" value="'+(kd.negotiating||'')+'" min="0"></div>'+
+        '<div class="fg"><span class="fl">Apps soumises</span><input class="fi" type="number" id="wk_apps" value="'+(kd.apps||'')+'" min="0"></div>'+
+        '<div class="fg"><span class="fl">Clients sign\u00e9s</span><input class="fi" type="number" id="wk_cli" value="'+(kd.clients||'')+'" min="0"></div>'+
+        '<div class="fg"><span class="fl">Meeting</span><input class="fi" type="number" id="wk_meet" value="'+(kd.meeting||'')+'" min="0"></div>'+
+        '<div class="fg"><span class="fl">Opportunity</span><input class="fi" type="number" id="wk_opp" value="'+(kd.opportunity||'')+'" min="0"></div>'+
+      '</div>'+
+      '<button class="btn-save" onclick="saveWeeklyEntry()">Enregistrer la semaine</button>'+
+    '</div>';
+}
+
+function selectWeek(wk){ selectedWeek=wk; showSection('weekly-entry'); }
+
+async function saveWeeklyEntry(){
+  var rep=currentRep;
+  var data={
+    rev:parseFloat(document.getElementById('wk_rev').value)||0,
+    negotiating:parseInt(document.getElementById('wk_nego').value)||0,
+    apps:parseInt(document.getElementById('wk_apps').value)||0,
+    clients:parseInt(document.getElementById('wk_cli').value)||0,
+    meeting:parseInt(document.getElementById('wk_meet').value)||0,
+    opportunity:parseInt(document.getElementById('wk_opp').value)||0
+  };
+  if(!weeklyKPIs[rep])weeklyKPIs[rep]={};
+  weeklyKPIs[rep][selectedWeek]=data;
+  showLoading('Sauvegarde...');
+  await saveWeeklyKPIToDB(rep,selectedWeek,data);
+  hideLoading();
+  showSection('weekly-entry');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY TARGETS ENTRY (SALES - visible to all, manager sets)
+// ═══════════════════════════════════════════════════════════════
+var selectedTargetMonth = getCurrentMonthKey();
+
+function renderMonthlyTargetsEntry(){
+  var rep = isManager ? currentRep : currentRep;
+  var FISCAL_MONTHS = ['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
+  var MONTH_LABELS = {'2026-05':'Mai 2026','2026-06':'Juin 2026','2026-07':'Juil 2026','2026-08':'Août 2026','2026-09':'Sep 2026','2026-10':'Oct 2026','2026-11':'Nov 2026','2026-12':'Déc 2026','2027-01':'Jan 2027','2027-02':'Fév 2027','2027-03':'Mar 2027','2027-04':'Avr 2027'};
+  
+  var repTabs = REPS.map(function(r,i){
+    return '<button class="q-btn'+(currentRep===r.key?' active':'')+'" onclick="switchRep(\''+r.key+'\');showSection(\'monthly-targets-entry\')">'+r.name+'</button>';
+  }).join('');
+
+  var monthBtns = FISCAL_MONTHS.map(function(m){
+    var isActive = m===selectedTargetMonth;
+    var t=(weeklyTargets[rep]||{})[m];
+    var has=t&&t.rev>0;
+    return '<button onclick="selectTargetMonth(\''+m+'\')" style="padding:4px 10px;font-size:11px;border:0.5px solid '+(isActive?'#6aaec8':has?'#3B6D11':'var(--color-border-secondary)')+';border-radius:16px;background:'+(isActive?'#6aaec8':has?'#EAF3DE':'transparent')+';color:'+(isActive?'#fff':has?'#3B6D11':'var(--color-text-secondary)')+';cursor:pointer;white-space:nowrap;margin:2px;">'+MONTH_LABELS[m]+'</button>';
+  }).join('');
+
+  var t = (weeklyTargets[rep]||{})[selectedTargetMonth]||{};
+  var mLabel = MONTH_LABELS[selectedTargetMonth]||selectedTargetMonth;
+
+  var content = isManager ?
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">'+
+      '<div class="fg"><span class="fl">Target Net Revenue (\xA3)</span><input class="fi" type="number" id="mt_rev" value="'+(t.rev||'')+'" min="0" step="100"></div>'+
+      '<div class="fg"><span class="fl">Target Negotiating (nb)</span><input class="fi" type="number" id="mt_nego" value="'+(t.negotiating||'')+'" min="0"></div>'+
+      '<div class="fg"><span class="fl">Target Apps</span><input class="fi" type="number" id="mt_apps" value="'+(t.apps||'')+'" min="0"></div>'+
+      '<div class="fg"><span class="fl">Target Clients</span><input class="fi" type="number" id="mt_cli" value="'+(t.clients||'')+'" min="0"></div>'+
+      '<div class="fg"><span class="fl">Target Meeting</span><input class="fi" type="number" id="mt_meet" value="'+(t.meeting||'')+'" min="0"></div>'+
+      '<div class="fg"><span class="fl">Target Opportunity</span><input class="fi" type="number" id="mt_opp" value="'+(t.opportunity||'')+'" min="0"></div>'+
+    '</div>'+
+    (isManager?'<button class="btn-save" onclick="saveMonthlyTarget()">Enregistrer les objectifs</button>':'') :
+    '<div style="padding:12px;background:var(--ebury-blue-l);border-radius:8px;font-size:12px;color:var(--ebury-blue-d);">Les objectifs mensuels sont définis par le manager.</div>';
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Objectifs mensuels</div><div class="ph-sub">'+repByKey(rep).name+' \u2014 targets par mois</div></div></div>'+
+    '<div class="card">'+
+      (isManager?'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">'+repTabs+'</div>':'')+
+      '<div class="card-title">S\u00e9lectionner le mois</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">'+monthBtns+'</div>'+
+      '<div style="font-size:12px;font-weight:500;margin-bottom:12px;color:var(--ebury-blue-d);">'+mLabel+'</div>'+
+      content+
+    '</div>';
+}
+
+function selectTargetMonth(m){ selectedTargetMonth=m; showSection('monthly-targets-entry'); }
+
+async function saveMonthlyTarget(){
+  var rep=currentRep;
+  var data={
+    rev:parseFloat(document.getElementById('mt_rev').value)||0,
+    negotiating:parseInt(document.getElementById('mt_nego').value)||0,
+    apps:parseInt(document.getElementById('mt_apps').value)||0,
+    clients:parseInt(document.getElementById('mt_cli').value)||0,
+    meeting:parseInt(document.getElementById('mt_meet').value)||0,
+    opportunity:parseInt(document.getElementById('mt_opp').value)||0
+  };
+  if(!weeklyTargets[rep])weeklyTargets[rep]={};
+  weeklyTargets[rep][selectedTargetMonth]=data;
+  showLoading('Sauvegarde...');
+  await saveMonthlyTargetToDB(rep,selectedTargetMonth,data);
+  hideLoading();
+  showSection('monthly-targets-entry');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TEAM WEEKLY (MANAGER) - consolidated view
+// ═══════════════════════════════════════════════════════════════
+var teamWeekSelected = getCurrentWeekKey();
+
+function renderTeamWeekly(){
+  var weeks = getFiscalWeeks().slice(0,30);
+  var weekBtns = weeks.map(function(w){
+    var wk=weekKey(w);
+    var isActive=wk===teamWeekSelected;
+    return '<button onclick="selectTeamWeek(\''+wk+'\')" style="padding:4px 10px;font-size:11px;border:0.5px solid '+(isActive?'#6aaec8':'var(--color-border-secondary)')+';border-radius:16px;background:'+(isActive?'#6aaec8':'transparent')+';color:'+(isActive?'#fff':'var(--color-text-secondary)')+';cursor:pointer;white-space:nowrap;margin:2px;">'+weekLabel(w)+'</button>';
+  }).join('');
+
+  var KPIS = ['rev','negotiating','apps','clients','meeting','opportunity'];
+  var LABELS = {'rev':'Net Rev.','negotiating':'Negotiating','apps':'Apps','clients':'Clients','meeting':'Meeting','opportunity':'Opport.'};
+
+  var rows = '';
+  // Total row
+  var totals = {};
+  KPIS.forEach(function(k){ totals[k]=REPS.reduce(function(s,r){ return s+(((weeklyKPIs[r.key]||{})[teamWeekSelected]||{})[k]||0); },0); });
+  rows += '<tr style="background:var(--color-background-secondary);font-weight:600;">';
+  rows += '<td>Total \u00e9quipe</td>';
+  KPIS.forEach(function(k){ rows += '<td class="mono">'+(k==='rev'?fmtGBP(totals[k]):totals[k])+'</td>'; });
+  rows += '</tr>';
+  // Per rep rows
+  REPS.forEach(function(rep){
+    var d=(weeklyKPIs[rep.key]||{})[teamWeekSelected]||{};
+    rows += '<tr>';
+    rows += '<td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:6px;">'+rep.init+'</div>'+rep.name+'</td>';
+    KPIS.forEach(function(k){ rows += '<td class="mono">'+(k==='rev'?fmtGBP(d[k]||0):(d[k]||0))+'</td>'; });
+    rows += '</tr>';
+  });
+
+  var thCells = KPIS.map(function(k){ return '<th>'+LABELS[k]+'</th>'; }).join('');
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Hebdo \u00e9quipe</div><div class="ph-sub">Vue consolid\u00e9e par semaine \u2014 manager</div></div></div>'+
+    '<div class="card">'+
+      '<div class="card-title">S\u00e9lectionner la semaine</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">'+weekBtns+'</div>'+
+      '<div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Commercial</th>'+thCells+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '</div>';
+}
+function selectTeamWeek(wk){ teamWeekSelected=wk; showSection('team-weekly'); }
+
+// ═══════════════════════════════════════════════════════════════
+// MTD / QTD / FY PERFORMANCE TABLE (MANAGER)
+// ═══════════════════════════════════════════════════════════════
+function renderPerfMTD(){
+  var curMonth = getCurrentMonthKey();
+  var curQ = currentQ;
+  var today = new Date();
+  // Get month label
+  var MONTH_LABELS = {'2026-05':'Mai','2026-06':'Juin','2026-07':'Juil','2026-08':'Août','2026-09':'Sep','2026-10':'Oct','2026-11':'Nov','2026-12':'Déc','2027-01':'Jan','2027-02':'Fév','2027-03':'Mar','2027-04':'Avr'};
+  var curMonthLabel = MONTH_LABELS[curMonth]||curMonth;
+
+  // Previous month
+  var prevDate = new Date(today.getFullYear(), today.getMonth()-1, 1);
+  var prevMonth = prevDate.toISOString().slice(0,7);
+
+  function getRepMTD(repKey){ return getWeeksInMonth(curMonth).reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
+  function getRepLM(repKey){ return getWeeksInMonth(prevMonth).reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
+  function getRepQTD(repKey){ return getWeeksInQuarter(curQ).reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
+  function getRepFY(repKey){ return getFiscalWeeks().reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
+  function getRepMTDTarget(repKey){ return ((weeklyTargets[repKey]||{})[curMonth]||{}).rev||0; }
+  function getRepQTDTarget(repKey){ return getWeeksInQuarter(curQ).reduce(function(s,w){ return s+(((weeklyTargets[repKey]||{})[getMonthKey(w)]||{}).rev||0); },0); }
+  function getRepFYTarget(repKey){ return getFiscalWeeks().reduce(function(s,w){ return s+(((weeklyTargets[repKey]||{})[getMonthKey(w)]||{}).rev||0); },0); }
+
+  function pctBadge(p){
+    var cls=p>=75?'b-ok':p>=50?'b-warn':'b-danger';
+    return '<span class="badge '+cls+'">'+Math.round(p)+'%</span>';
+  }
+  function delta(a,b){ var d=a-b; return (d>=0?'<span style="color:#3B6D11;">+'+fmtGBP(d)+'</span>':'<span style="color:#A32D2D;">'+fmtGBP(d)+'</span>'); }
+
+  // Build rows for team + each rep
+  var entities = [{key:'team', name:'\u00c9quipe', av:'', isTeam:true}].concat(REPS.map(function(r){return {key:r.key,name:r.name,av:r.av,init:r.init,isTeam:false};}));
+
+  var rows = entities.map(function(e){
+    var mtdRev = e.isTeam ? REPS.reduce(function(s,r){return s+getRepMTD(r.key);},0) : getRepMTD(e.key);
+    var mtdTgt = e.isTeam ? REPS.reduce(function(s,r){return s+getRepMTDTarget(r.key);},0) : getRepMTDTarget(e.key);
+    var mtdPct = mtdTgt>0 ? (mtdRev/mtdTgt*100) : 0;
+    var lmRev  = e.isTeam ? REPS.reduce(function(s,r){return s+getRepLM(r.key);},0) : getRepLM(e.key);
+    var lmTgt  = mtdTgt; // use same monthly target as proxy
+    var lmPct  = lmTgt>0 ? (lmRev/lmTgt*100) : 0;
+    var qtdRev = e.isTeam ? REPS.reduce(function(s,r){return s+getRepQTD(r.key);},0) : getRepQTD(e.key);
+    var qtdTgt = e.isTeam ? REPS.reduce(function(s,r){return s+getRepQTDTarget(r.key);},0) : getRepQTDTarget(e.key);
+    var qtdPct = qtdTgt>0 ? (qtdRev/qtdTgt*100) : 0;
+    var fyRev  = e.isTeam ? REPS.reduce(function(s,r){return s+getRepFY(r.key);},0) : getRepFY(e.key);
+    var fyTgt  = e.isTeam ? REPS.reduce(function(s,r){return s+getRepFYTarget(r.key);},0) : getRepFYTarget(e.key);
+    var fyPct  = fyTgt>0 ? (fyRev/fyTgt*100) : 0;
+    var ytdPct = fyPct; // same as FY in our context
+
+    var nameCell = e.isTeam ? '<td><strong>\u00c9quipe</strong></td>' :
+      '<td><div class="av '+e.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:6px;">'+e.init+'</div>'+e.name+'</td>';
+
+    return '<tr'+(e.isTeam?' style="background:var(--color-background-secondary);font-weight:600;"':'')+'>'+
+      nameCell+
+      '<td class="mono">'+fmtGBP(mtdRev)+'</td>'+
+      '<td class="mono">'+fmtGBP(mtdTgt)+'</td>'+
+      '<td>'+pctBadge(mtdPct)+'</td>'+
+      '<td class="mono">'+fmtGBP(lmRev)+'</td>'+
+      '<td>'+pctBadge(lmPct)+'</td>'+
+      '<td class="mono">'+fmtGBP(qtdRev)+'</td>'+
+      '<td class="mono">'+fmtGBP(qtdTgt)+'</td>'+
+      '<td>'+delta(qtdRev,qtdTgt)+'</td>'+
+      '<td>'+pctBadge(qtdPct)+'</td>'+
+      '<td class="mono">'+fmtGBP(fyRev)+'</td>'+
+      '<td>'+delta(fyRev,fyTgt)+'</td>'+
+      '<td>'+pctBadge(ytdPct)+'</td>'+
+      '<td>'+pctBadge(fyPct)+'</td>'+
+    '</tr>';
+  }).join('');
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">MTD / QTD / FY</div><div class="ph-sub">Net Revenue \u2014 '+curMonthLabel+' \u2022 Q'+(curQ+1)+' \u2022 FY 2026-27</div></div></div>'+
+    '<div class="card" style="overflow-x:auto;">'+
+      '<table class="tbl" style="min-width:900px;">'+
+        '<thead><tr>'+
+          '<th></th>'+
+          '<th>Rev. MTD</th><th>Target MTD</th><th>MTD %</th>'+
+          '<th>Rev. LM</th><th>LM %</th>'+
+          '<th>Rev. QTD</th><th>Target QTD</th><th>Delta QTD</th><th>QTD %</th>'+
+          '<th>Rev. FY</th><th>Delta YTD</th><th>YTD %</th><th>FY %</th>'+
+        '</tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table>'+
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'+
+        '<span style="font-size:10px;color:var(--color-text-tertiary);">Codes couleur :</span>'+
+        '<span class="badge b-ok">\u2265 75% \u2014 vert</span>'+
+        '<span class="badge b-warn">50\u201375% \u2014 orange</span>'+
+        '<span class="badge b-danger">< 50% \u2014 rouge</span>'+
+      '</div>'+
+    '</div>';
+}
+
 </script>
 </body>
 </html>
