@@ -257,11 +257,7 @@ textarea.fi{min-height:65px;resize:vertical;}
       <div class="mode-pill pill-sales" id="modePill">Vue commercial</div>
       <div style="font-size:10px;color:var(--hint);margin-bottom:6px;" id="repLabel">—</div>
 
-      <select class="rep-sel" id="repSelector" onchange="switchRep(this.value)">
-        <option value="julien">Julien</option>
-        <option value="anael">Ana&#235;l</option>
-        <option value="pierre">Pierre</option>
-      </select>
+      <select class="rep-sel" id="repSelector" onchange="switchRep(this.value)"><option value="julien">Julien</option><option value="anael">Ana&#235;l</option><option value="pierre">Pierre</option></select>
       <div id="switchViewBtn" style="display:none;margin-top:8px;">
         <button onclick="switchView()" id="viewToggleBtn" style="width:100%;padding:7px 10px;font-size:11px;font-weight:600;border:1.5px solid var(--ebury-blue);border-radius:8px;background:var(--ebury-blue-l);color:var(--ebury-blue-d);cursor:pointer;font-family:var(--font);">
           &#x21C4; Passer en vue manager
@@ -326,11 +322,12 @@ let perfData = [
   [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}]
 ];
 let perfTargets = [
-  [{rev:20000,clients:5,pipeline:50000,apps:12},{rev:22000,clients:6,pipeline:55000,apps:14},{rev:25000,clients:7,pipeline:60000,apps:16},{rev:28000,clients:8,pipeline:65000,apps:18}],
-  [{rev:20000,clients:5,pipeline:50000,apps:12},{rev:22000,clients:6,pipeline:55000,apps:14},{rev:25000,clients:7,pipeline:60000,apps:16},{rev:28000,clients:8,pipeline:65000,apps:18}],
-  [{rev:20000,clients:5,pipeline:50000,apps:12},{rev:22000,clients:6,pipeline:55000,apps:14},{rev:25000,clients:7,pipeline:60000,apps:16},{rev:28000,clients:8,pipeline:65000,apps:18}]
+  [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}],
+  [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}],
+  [{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0},{rev:0,clients:0,pipeline:0,apps:0}]
 ];
-let annualTeamTarget = {rev:270000, clients:78, pipeline:660000, apps:180};
+let annualTeamTarget = {rev:0,clients:0,pipeline:0,apps:0,meeting:0,opportunity:0,fiscal_year:"2026-27"};
+let annualRepTargets = {julien:0,anael:0,pierre:0,manager:0};
 
 // ═══════════════════════════════════════════════════════════════
 // SUPABASE DATA LAYER
@@ -420,9 +417,18 @@ async function loadPersisted(){
       dbTabs.forEach(function(d){if(!customTabs[d.rep])customTabs[d.rep]=[];customTabs[d.rep].push({_id:d.id,name:d.name||'',content:d.content||''});});
     }
     // Load annual target
-    var {data:dbAts} = await sb.from('annual_target').select('*').order('updated_at',{ascending:false}).limit(1);
-    var dbAt=dbAts&&dbAts[0];
-    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2026-27',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negotiating||0,apps:dbAt.apps||0};
+    var {data:dbAts} = await sb.from('annual_target').select('*').order('updated_at',{ascending:false});
+    var dbAt=null;
+    if(dbAts&&dbAts.length){
+      // Prefer matching fiscal year, fallback to most recent
+      dbAt=dbAts.find(function(d){return d.fiscal_year==='2026-27';})||dbAts[0];
+    }
+    if(dbAt) annualTeamTarget={fiscal_year:dbAt.fiscal_year||'2026-27',rev:dbAt.rev||0,clients:dbAt.clients||0,pipeline:dbAt.negotiating||0,apps:dbAt.apps||0,meeting:dbAt.meeting||0,opportunity:dbAt.opportunity||0};
+    // Load per-rep FY targets
+    var {data:dbRepFY} = await sb.from('monthly_targets').select('*').eq('month_key','fy_target');
+    if(dbRepFY){
+      dbRepFY.forEach(function(d){annualRepTargets[d.rep]=d.rev||0;});
+    }
     // Load weekly KPIs
     var {data:dbWKPIs} = await sb.from('weekly_kpis').select('*');
     if(dbWKPIs){
@@ -567,7 +573,10 @@ function sumWeeks(repKey, weeksList, kpi){
   return weeksList.reduce(function(s,w){ var wk=weekKey(w); return s+((d[wk]&&d[wk][kpi])||0); },0);
 }
 function sumAllRepsWeeks(weeksList, kpi){
-  return REPS.reduce(function(s,r){ return s+sumWeeks(r.key,weeksList,kpi); },0);
+  var repSum=REPS.reduce(function(s,r){ return s+sumWeeks(r.key,weeksList,kpi); },0);
+  // Add manager's weekly KPIs
+  var mgrSum=sumWeeks('manager',weeksList,kpi);
+  return repSum+mgrSum;
 }
 
 let weeklyData = {
@@ -634,10 +643,12 @@ function enterAsSales(rep){
   document.getElementById('loginOverlay').classList.add('hidden');
   document.getElementById('app').classList.add('visible');
   document.getElementById('modePill').textContent='Vue commercial';
+  document.getElementById('modePill').className='mode-pill pill-sales';
   document.getElementById('repSelector').value=rep;
   document.getElementById('repLabel').textContent=repByKey(rep).name;
   loadPersisted();
   document.getElementById('switchViewBtn').style.display='block';
+  var rw=document.getElementById('repSelectorWrap');if(rw)rw.style.display='block';
   buildNav();initApp();
 }
 function switchView(){
@@ -679,7 +690,7 @@ function setPeriod(p,btn){
   btn.classList.add('active');
   renderSection(currentSection);
 }
-var currentDashPeriod='month';
+var currentDashPeriod='week';
 function setDashPeriod(p,btn){
   currentDashPeriod=p;
   document.querySelectorAll('.dash-period-btn').forEach(function(b){b.classList.remove('active');});
@@ -702,8 +713,7 @@ function buildNav(){
   if(!isManager){
     html+=navItem('sales-weekly','&#128200;','Weekly');
     html+=navItem('sales-monthly','&#128202;','Monthly');
-    html+=navItem('sales-quarterly','&#127942;','Quarterly');
-    html+=navItem('custom-tabs','&#43;','Mes onglets perso');
+      html+=navItem('custom-tabs','&#43;','Mes onglets perso');
   }
   if(isManager){
     html+='<div class="nav-sep">Manager</div>';
@@ -760,6 +770,7 @@ function renderSection(id){
   else if(id==='saisie') html=renderSaisie();
   else if(id==='pipe') html=renderPipe();
   else if(id==='monthly-subjects') html=renderMonthlySubjects();
+  else if(id==='sales-weekly') html=renderSalesWeekly();
   else if(id==='sales-monthly') html=renderSalesMonthly();
   else if(id==='custom-tabs') html=renderCustomTabs();
   else if(id==='team-pipe') html=renderTeamPipe();
@@ -794,7 +805,8 @@ function renderDashboard(){
 
   // ── KPI calculations based on period ──
   function teamSum(kpi, weekList){
-    return REPS.reduce(function(s,r){return s+sumWeeks(r.key,weekList,kpi);},0);
+    var repSum=REPS.reduce(function(s,r){return s+sumWeeks(r.key,weekList,kpi);},0);
+    return repSum+sumWeeks('manager',weekList,kpi);
   }
   var weekList;
   var periodLabel;
@@ -883,6 +895,15 @@ function renderDashboard(){
     repBreakdown+='<table class="tbl"><thead><tr><th>Commercial</th><th>Net Rev.</th><th>Clients</th><th>Apps</th><th>Meeting</th><th>Opport.</th></tr></thead><tbody>';
     // Team total row
     repBreakdown+='<tr style="background:var(--color-background-secondary);font-weight:600;"><td>\u00c9quipe</td><td class="mono">'+fmtGBP(totRev)+'</td><td>'+totCli+'</td><td>'+totApps+'</td><td>'+totMeet+'</td><td>'+totOpp+'</td></tr>';
+    // Manager row
+    var mgrRev=sumWeeks('manager',weekList,'rev');
+    repBreakdown+='<tr><td><div class="av av-m" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">M</div>Manager</td>';
+    repBreakdown+='<td class="mono">'+fmtGBP(mgrRev)+'</td>';
+    repBreakdown+='<td>'+sumWeeks('manager',weekList,'clients')+'</td>';
+    repBreakdown+='<td>'+sumWeeks('manager',weekList,'apps')+'</td>';
+    repBreakdown+='<td>'+sumWeeks('manager',weekList,'meeting')+'</td>';
+    repBreakdown+='<td>'+sumWeeks('manager',weekList,'opportunity')+'</td>';
+    repBreakdown+='</tr>';
     REPS.forEach(function(rep){
       repBreakdown+='<tr>';
       repBreakdown+='<td><div class="av '+rep.av+'" style="width:22px;height:22px;font-size:9px;display:inline-flex;margin-right:5px;">'+rep.init+'</div>'+rep.name+'</td>';
@@ -1251,37 +1272,63 @@ function renderTeamPipe(){
 // ═══════════════════════════════════════════════════════════════
 function renderMonthlySubjects(){
   var rep=currentRep;
-  var subjects=monthlySubjects[rep]||[];
+  var repInfo=repByKey(rep);
+  var isConsolidated=isManager;
+
+  // Build data: manager sees all reps, sales sees only own
+  var allSubjects=[];
+  if(isConsolidated){
+    REPS.forEach(function(r){
+      (monthlySubjects[r.key]||[]).forEach(function(s){
+        allSubjects.push(Object.assign({},s,{_rep:r.name,_repAv:r.av,_repInit:r.init}));
+      });
+    });
+  } else {
+    allSubjects=(monthlySubjects[rep]||[]).map(function(s){return Object.assign({},s,{_rep:repInfo.name,_repAv:repInfo.av,_repInit:repInfo.init});});
+  }
+
+  var MONTHS_LIST=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
+  var MLABELS={'2026-05':'Mai 2026','2026-06':'Juin 2026','2026-07':'Juil 2026','2026-08':'A\u00fbt 2026','2026-09':'Sep 2026','2026-10':'Oct 2026','2026-11':'Nov 2026','2026-12':'D\u00e9c 2026','2027-01':'Jan 2027','2027-02':'F\u00e9v 2027','2027-03':'Mar 2027','2027-04':'Avr 2027'};
+
   var byMonth={};
-  subjects.forEach(function(s){var m=s.month||'Non class\u00e9';if(!byMonth[m])byMonth[m]=[];byMonth[m].push(s);});
+  allSubjects.forEach(function(s){var m=s.month||'Non class\u00e9';if(!byMonth[m])byMonth[m]=[];byMonth[m].push(s);});
+
   var rows='';
-  if(!subjects.length){rows='<tr><td colspan="9" style="text-align:center;color:var(--hint);padding:2rem;">Aucun deal \u2014 ajoutez votre premier deal du mois.</td></tr>';}
-  else{
+  if(!allSubjects.length){
+    rows='<tr><td colspan="'+(isConsolidated?'10':'9')+'" style="text-align:center;color:var(--color-text-tertiary);padding:2rem;">Aucun deal \u2014 cliquez sur + Nouveau deal</td></tr>';
+  } else {
     MONTHS_LIST.forEach(function(m){
       if(!byMonth[m])return;
-      rows+='<tr><td colspan="9" style="background:var(--ebury-blue-l);font-weight:700;font-size:11px;padding:7px 10px;color:var(--ebury-blue-d);letter-spacing:0.04em;">'+m+'</td></tr>';
-      byMonth[m].forEach(function(s,si){
-        var realIdx=subjects.indexOf(s);
+      rows+='<tr><td colspan="'+(isConsolidated?'10':'9')+'" style="background:var(--ebury-blue-l);font-weight:700;font-size:11px;padding:7px 10px;color:var(--ebury-blue-d);letter-spacing:.04em;">'+(MLABELS[m]||m)+'</td></tr>';
+      byMonth[m].forEach(function(s){
         var pipePill=s.isPipe?'<span class="pill p-won">Oui</span>':'<span class="pill p-prospect">Non</span>';
         var demoPill=s.isDemo?'<span class="pill p-won">Oui</span>':'<span class="pill p-prospect">Non</span>';
+        var realIdx=(monthlySubjects[isConsolidated?s._repKey||rep:rep]||[]).indexOf(s);
         rows+='<tr>';
-        rows+='<td style="font-size:11px;color:var(--muted);">'+esc(s.date||'')+'</td>';
+        if(isConsolidated) rows+='<td><div class="av '+s._repAv+'" style="width:20px;height:20px;font-size:9px;display:inline-flex;margin-right:4px;">'+s._repInit+'</div>'+s._rep+'</td>';
+        rows+='<td style="font-size:11px;color:var(--color-text-secondary);">'+esc(s.date||'')+'</td>';
         rows+='<td><strong>'+esc(s.account)+'</strong></td>';
         rows+='<td class="mono">'+fmtGBP(s.volume)+'</td>';
         rows+='<td style="font-size:11px;">'+(s.currency||'\u2014')+'</td>';
         rows+='<td class="mono" style="font-size:11px;">'+(s.potential?fmtGBP(s.potential):'\u2014')+'</td>';
-        rows+='<td style="font-size:11px;color:var(--muted);">'+(s.followup?esc(s.followup).substring(0,30):'\u2014')+'</td>';
+        rows+='<td style="font-size:11px;color:var(--color-text-secondary);">'+(s.followup?esc(s.followup).substring(0,30):'\u2014')+'</td>';
         rows+='<td>'+pipePill+'</td>';
         rows+='<td>'+demoPill+'</td>';
-        rows+='<td style="display:flex;gap:4px;"><button class="btn-sm" onclick="editMSubject(\''+rep+'\','+realIdx+')">Edit</button><button class="btn-sm del" onclick="delMSubject(\''+rep+'\','+realIdx+')">&#x2715;</button></td>';
+        if(!isConsolidated) rows+='<td style="display:flex;gap:4px;"><button class="btn-sm" onclick="editMSubject(\''+rep+'\','+realIdx+')">Edit</button><button class="btn-sm del" onclick="delMSubject(\''+rep+'\','+realIdx+')">&#x2715;</button></td>';
         rows+='</tr>';
       });
     });
   }
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Monthly Subjects</div><div class="ph-sub">'+repByKey(rep).name+' \u2014 nouveaux deals mois par mois</div></div><button class="btn-save" onclick="openMSubjectModal(\''+rep+'\')">+ Nouveau deal</button></div>'+
-    '<div class="card"><div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Date</th><th>Compte</th><th>Volume</th><th>Devise</th><th>Potentiel</th><th>Suite \u00e0 donner</th><th>Pipe</th><th>D\u00e9mo</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    '<button class="btn-add" onclick="openMSubjectModal(\''+rep+'\')">+ Ajouter un deal</button></div>';
+
+  var addBtn=!isConsolidated?'<button class="btn-save" onclick="openMSubjectModal(\''+rep+'\')">+ Nouveau deal</button>':'';
+  var thRep=isConsolidated?'<th>Commercial</th>':'';
+
+  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Monthly Subjects</div><div class="ph-sub">'+(isConsolidated?'Vue consolid\u00e9e \u00e9quipe':repInfo.name+' \u2014 nouveaux deals mois par mois')+'</div></div>'+addBtn+'</div>'+
+    '<div class="card"><div style="overflow-x:auto;"><table class="tbl"><thead><tr>'+thRep+'<th>Date</th><th>Compte</th><th>Volume</th><th>Devise</th><th>Potentiel</th><th>Suite \u00e0 donner</th><th>Pipe</th><th>D\u00e9mo</th>'+(isConsolidated?'':'<th></th>')+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    (!isConsolidated?'<button class="btn-add" onclick="openMSubjectModal(\''+rep+'\')">+ Ajouter un deal</button>':'')+
+    '</div>';
 }
+
 function openMSubjectModal(rep,editIdx){
   var isEdit=editIdx!==undefined&&editIdx>=0;
   var s=isEdit?(monthlySubjects[rep]||[])[editIdx]:{};
@@ -1741,32 +1788,74 @@ function saveNote(key){
 // ═══════════════════════════════════════════════════════════════
 function renderAnnualTarget(){
   var t=annualTeamTarget;
-  var currentFY=annualTeamTarget.fiscal_year||'2026-27';
+  var currentFY=t.fiscal_year||'2026-27';
   var FISCAL_MONTHS=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
   var MLABELS={'2026-05':'Mai 26','2026-06':'Juin 26','2026-07':'Juil 26','2026-08':'A\u00fbt 26','2026-09':'Sep 26','2026-10':'Oct 26','2026-11':'Nov 26','2026-12':'D\u00e9c 26','2027-01':'Jan 27','2027-02':'F\u00e9v 27','2027-03':'Mar 27','2027-04':'Avr 27'};
   var activeRep=window._annualTargetRep||'julien';
   var activeMonth=window._annualTargetMonth||FISCAL_MONTHS[0];
-  var repTabs=REPS.map(function(r){return '<button class="q-btn'+(activeRep===r.key?' active':'')+'" onclick="setAnnualRep(\''+r.key+'\')">'+r.name+'</button>';}).join('');
+
+  // Performance summary (MTD/QTD/FY)
+  var curMonth=getCurrentMonthKey();
+  var mtdWeeks=getWeeksInMonth(curMonth);
+  var qtdWeeks=getWeeksInQuarter(currentQ);
+  var fyWeeks=getFiscalWeeks();
+  function teamRevFor(wks){return REPS.reduce(function(s,r){return s+sumWeeks(r.key,wks,'rev');},0)+sumWeeks('manager',wks,'rev');}
+  var mtdRev=teamRevFor(mtdWeeks);
+  var qtdRev=teamRevFor(qtdWeeks);
+  var fyRev=teamRevFor(fyWeeks);
+  var mtdTgt=REPS.reduce(function(s,r){return s+(((weeklyTargets[r.key]||{})[curMonth]||{}).rev||0);},0);
+  var qtdTgt=REPS.reduce(function(s,r){return s+qtdWeeks.reduce(function(ss,w){return ss+(((weeklyTargets[r.key]||{})[getMonthKey(w)]||{}).rev||0);},0);},0);
+  var fyTgt=t.rev||0;
+  function pctColor(p){return p>=75?'var(--green)':p>=50?'var(--amber)':'var(--red)';}
+  var mtdPct=mtdTgt>0?Math.round(mtdRev/mtdTgt*100):0;
+  var qtdPct=qtdTgt>0?Math.round(qtdRev/qtdTgt*100):0;
+  var fyPct=fyTgt>0?Math.round(fyRev/fyTgt*100):0;
+
+  var perfBanner='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem;">';
+  perfBanner+='<div style="background:var(--ebury-blue-l);border-radius:10px;padding:14px;"><div style="font-size:10px;color:var(--ebury-blue-d);font-weight:600;text-transform:uppercase;margin-bottom:4px;">MTD</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:var(--ebury-blue-d);">'+fmtGBP(mtdRev)+'</div><div style="font-size:11px;color:var(--ebury-blue-d);margin-top:2px;">/ '+fmtGBP(mtdTgt)+' • <span style="color:'+pctColor(mtdPct)+';">'+mtdPct+'%</span></div></div>';
+  perfBanner+='<div style="background:#EAF3DE;border-radius:10px;padding:14px;"><div style="font-size:10px;color:#3B6D11;font-weight:600;text-transform:uppercase;margin-bottom:4px;">QTD — Q'+(currentQ+1)+'</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:#3B6D11;">'+fmtGBP(qtdRev)+'</div><div style="font-size:11px;color:#3B6D11;margin-top:2px;">/ '+fmtGBP(qtdTgt)+' • <span style="color:'+pctColor(qtdPct)+';">'+qtdPct+'%</span></div></div>';
+  perfBanner+='<div style="background:#FEF3C7;border-radius:10px;padding:14px;"><div style="font-size:10px;color:#92400E;font-weight:600;text-transform:uppercase;margin-bottom:4px;">FY 2026-27</div><div style="font-size:20px;font-weight:700;font-family:var(--font-mono);color:#92400E;">'+fmtGBP(fyRev)+'</div><div style="font-size:11px;color:#92400E;margin-top:2px;">/ '+fmtGBP(fyTgt)+' • <span style="color:'+pctColor(fyPct)+';">'+fyPct+'%</span></div></div>';
+  perfBanner+='</div>';
+
+  // Per-rep totals from monthly targets
+  var repTotals=REPS.map(function(r){
+    return{key:r.key,name:r.name,av:r.av,init:r.init,
+      total:FISCAL_MONTHS.reduce(function(s,m){return s+(((weeklyTargets[r.key]||{})[m]||{}).rev||0);},0),
+      fyTarget:(annualRepTargets&&annualRepTargets[r.key])||0
+    };
+  });
+  var teamMonthlyTotal=repTotals.reduce(function(s,r){return s+r.total;},0);
+  var delta=(t.rev||0)-teamMonthlyTotal;
+
+  var repRows=repTotals.map(function(r){
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:12px;">'+
+      '<span><div class="av '+r.av+'" style="width:20px;height:20px;font-size:9px;display:inline-flex;margin-right:5px;">'+r.init+'</div>'+r.name+'</span>'+
+      '<span style="display:flex;align-items:center;gap:12px;">'+
+        '<span style="font-size:10px;color:var(--color-text-tertiary);">FY target: <input type="number" style="width:80px;font-size:11px;padding:2px 4px;border:.5px solid var(--color-border-secondary);border-radius:4px;font-family:var(--font-mono);" id="at_rep_'+r.key+'" value="'+(annualRepTargets&&annualRepTargets[r.key]||'')+'" min="0" step="1000" onchange="saveRepFYTarget(this.id.replace(\'at_rep_\',\'\'),this.value)"> </span>'+
+        '<span class="mono" style="font-weight:500;min-width:60px;text-align:right;">'+fmtGBP(r.total)+'<span style="font-size:9px;color:var(--color-text-tertiary);"> mensuel</span></span>'+
+      '</span>'+
+    '</div>';
+  }).join('');
+
+  // Monthly targets section
+  var repTabs=REPS.map(function(r){return '<button class="q-btn'+(activeRep===r.key?' active':'')+'" onclick="window._annualTargetRep=\''+r.key+'\';showSection(\'monthly-targets-entry\')">' + r.name+'</button>';}).join('');
   var monthBtns=FISCAL_MONTHS.map(function(m){return '<button class="q-btn'+(m===activeMonth?' active':'')+'" style="font-size:10px;padding:3px 8px;" onclick="setAnnualMonth(\''+m+'\')">'+MLABELS[m]+'</button>';}).join('');
   var mt=(weeklyTargets[activeRep]||{})[activeMonth]||{};
-  var repTotals=REPS.map(function(r){return{key:r.key,name:r.name,av:r.av,init:r.init,total:FISCAL_MONTHS.reduce(function(s,m){return s+(((weeklyTargets[r.key]||{})[m]||{}).rev||0);},0)};});
-  var teamTotal=repTotals.reduce(function(s,r){return s+r.total;},0);
-  var delta=(t.rev||0)-teamTotal;
-  var repRows=repTotals.map(function(r){return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:12px;"><span><div class="av '+r.av+'" style="width:20px;height:20px;font-size:9px;display:inline-flex;margin-right:5px;">'+r.init+'</div>'+r.name+'</span><span class="mono" style="font-weight:500;">'+fmtGBP(r.total)+'</span></div>';}).join('');
 
-  var html='<div class="ph">'+backBtn()+'<div><div class="ph-title">Target annuelle \u00e9quipe</div><div class="ph-sub">Setup du dashboard \u2014 FY '+currentFY+'</div></div></div>';
+  var html='<div class="ph">'+backBtn()+'<div><div class="ph-title">Target annuelle équipe</div><div class="ph-sub">Setup FY '+currentFY+'</div></div></div>';
+  html+=perfBanner;
   html+='<div class="grid-2">';
 
-  // LEFT: FY Team target
+  // LEFT: FY targets
   html+='<div class="card">';
-  html+='<div class="card-title">Target FY \u00e9quipe</div>';
-  html+='<div class="fg"><span class="fl">Ann\u00e9e fiscale</span><input class="fi" id="at_fy" value="'+currentFY+'" placeholder="2026-27"></div>';
-  html+='<div class="fg"><span class="fl">FY Net Revenue \u00e9quipe (\xA3)</span><input class="fi" type="number" id="at_rev" value="'+(t.rev||'')+'" min="0" step="1000"></div>';
-  html+='<button class="btn-save" onclick="saveAnnualTarget()" style="margin-bottom:1rem;">Mettre \u00e0 jour</button>';
+  html+='<div class="card-title">Target FY équipe</div>';
+  html+='<div class="fg"><span class="fl">Année fiscale</span><input class="fi" id="at_fy" value="'+currentFY+'" placeholder="2026-27"></div>';
+  html+='<div class="fg"><span class="fl">FY Net Revenue équipe (total équipe, £)</span><input class="fi" type="number" id="at_rev" value="'+(t.rev||'')+'" min="0" step="1000"></div>';
+  html+='<button class="btn-save" onclick="saveAnnualTarget()" style="margin-bottom:1rem;">Mettre à jour</button>';
   html+='<div style="padding-top:1rem;border-top:.5px solid var(--color-border-tertiary);">';
-  html+='<div class="card-title">Somme targets mensuelles</div>';
+  html+='<div class="card-title" style="margin-bottom:8px;">FY target par commercial <span style="font-size:10px;color:var(--color-text-tertiary);font-weight:400;">(saisir directement)</span></div>';
   html+=repRows;
-  html+='<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;font-weight:600;border-top:.5px solid var(--color-border-tertiary);margin-top:4px;"><span>Total</span><span class="mono">'+fmtGBP(teamTotal)+'</span></div>';
+  html+='<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;font-weight:600;border-top:.5px solid var(--color-border-tertiary);margin-top:4px;"><span>Somme targets mensuelles</span><span class="mono">'+fmtGBP(teamMonthlyTotal)+'</span></div>';
   html+='<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;"><span style="color:var(--color-text-secondary);">Delta vs FY target</span><span class="mono" style="color:'+(delta>=0?'var(--green)':'var(--red)')+';">'+(delta>=0?'+':'')+fmtGBP(delta)+'</span></div>';
   html+='</div></div>';
 
@@ -1775,9 +1864,9 @@ function renderAnnualTarget(){
   html+='<div class="card-title">Targets mensuelles par commercial</div>';
   html+='<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabs+'</div>';
   html+='<div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;">'+monthBtns+'</div>';
-  html+='<div style="font-size:12px;font-weight:500;color:var(--ebury-blue-d);margin-bottom:10px;">'+(MLABELS[activeMonth]||activeMonth)+' \u2014 '+repByKey(activeRep).name+'</div>';
+  html+='<div style="font-size:12px;font-weight:500;color:var(--ebury-blue-d);margin-bottom:10px;">'+(MLABELS[activeMonth]||activeMonth)+' — '+repByKey(activeRep).name+'</div>';
   html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
-  html+='<div class="fg"><span class="fl">Target Net Revenue (\xA3)</span><input class="fi" type="number" id="mt_rev" value="'+(mt.rev||'')+'" min="0" step="100"></div>';
+  html+='<div class="fg"><span class="fl">Target Net Revenue (£)</span><input class="fi" type="number" id="mt_rev" value="'+(mt.rev||'')+'" min="0" step="100"></div>';
   html+='<div class="fg"><span class="fl">Target Apps</span><input class="fi" type="number" id="mt_apps" value="'+(mt.apps||'')+'" min="0"></div>';
   html+='<div class="fg"><span class="fl">Target Clients</span><input class="fi" type="number" id="mt_clients" value="'+(mt.clients||'')+'" min="0"></div>';
   html+='<div class="fg"><span class="fl">Target Meeting</span><input class="fi" type="number" id="mt_meeting" value="'+(mt.meeting||'')+'" min="0"></div>';
@@ -1786,6 +1875,12 @@ function renderAnnualTarget(){
   html+='<button class="btn-save" onclick="saveMonthlyTargetFromAnnual()">Enregistrer</button>';
   html+='</div></div>';
   return html;
+}
+
+function saveRepFYTarget(repKey, val){
+  annualRepTargets[repKey]=parseFloat(val)||0;
+  // Save to Supabase as a monthly target proxy - store under special key 'fy_target'
+  sb.from('monthly_targets').upsert({rep:repKey,month_key:'fy_target',rev:annualRepTargets[repKey],negotiating:0,apps:0,clients:0,meeting:0,opportunity:0,updated_at:new Date().toISOString()},{onConflict:'rep,month_key'});
 }
 function setAnnualRep(r){window._annualTargetRep=r;showSection('annual-target');}
 function setAnnualMonth(m){window._annualTargetMonth=m;showSection('annual-target');}
@@ -1801,7 +1896,15 @@ async function saveMonthlyTargetFromAnnual(){
   showSection('annual-target');
 }
 function saveAnnualTarget(){
-  annualTeamTarget={fiscal_year:document.getElementById('at_fy')?document.getElementById('at_fy').value.trim():'2026-27',rev:parseFloat(document.getElementById('at_rev').value)||0,clients:0,meeting:0,opportunity:0,apps:0,pipeline:0};
+  annualTeamTarget={
+    fiscal_year:document.getElementById('at_fy')?document.getElementById('at_fy').value.trim():'2026-27',
+    rev:parseFloat(document.getElementById('at_rev').value)||0,
+    clients:parseInt(document.getElementById('at_clients_fy')?document.getElementById('at_clients_fy').value:0)||0,
+    meeting:parseInt(document.getElementById('at_meeting_fy')?document.getElementById('at_meeting_fy').value:0)||0,
+    opportunity:parseInt(document.getElementById('at_opp_fy')?document.getElementById('at_opp_fy').value:0)||0,
+    apps:parseInt(document.getElementById('at_apps_fy')?document.getElementById('at_apps_fy').value:0)||0,
+    pipeline:0
+  };
   saveAnnualTargetToDB(annualTeamTarget).then(function(){alert('Target annuelle mise \u00e0 jour \u2713');});
   showSection('annual-target');
 }
@@ -1872,44 +1975,67 @@ async function saveWeeklyEntry(){
 var selectedTargetMonth = getCurrentMonthKey();
 
 function renderMonthlyTargetsEntry(){
-  var rep = isManager ? currentRep : currentRep;
-  var FISCAL_MONTHS = ['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
-  var MONTH_LABELS = {'2026-05':'Mai 2026','2026-06':'Juin 2026','2026-07':'Juil 2026','2026-08':'Août 2026','2026-09':'Sep 2026','2026-10':'Oct 2026','2026-11':'Nov 2026','2026-12':'Déc 2026','2027-01':'Jan 2027','2027-02':'Fév 2027','2027-03':'Mar 2027','2027-04':'Avr 2027'};
-  
-  var repTabs = REPS.map(function(r,i){
-    return '<button class="q-btn'+(currentRep===r.key?' active':'')+'" onclick="switchRep(\''+r.key+'\');showSection(\'monthly-targets-entry\')">'+r.name+'</button>';
-  }).join('');
+  var FISCAL_MONTHS=['2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'];
+  var MLABELS={'2026-05':'Mai 26','2026-06':'Juin 26','2026-07':'Juil 26','2026-08':'A\u00fbt 26','2026-09':'Sep 26','2026-10':'Oct 26','2026-11':'Nov 26','2026-12':'D\u00e9c 26','2027-01':'Jan 27','2027-02':'F\u00e9v 27','2027-03':'Mar 27','2027-04':'Avr 27'};
+  var activeMonth=selectedTargetMonth||getCurrentMonthKey();
 
-  var monthBtns = FISCAL_MONTHS.map(function(m){
-    var isActive = m===selectedTargetMonth;
-    var t=(weeklyTargets[rep]||{})[m];
-    var has=t&&t.rev>0;
-    return '<button onclick="selectTargetMonth(\''+m+'\')" style="padding:4px 10px;font-size:11px;border:0.5px solid '+(isActive?'#6aaec8':has?'#3B6D11':'var(--color-border-secondary)')+';border-radius:16px;background:'+(isActive?'#6aaec8':has?'#EAF3DE':'transparent')+';color:'+(isActive?'#fff':has?'#3B6D11':'var(--color-text-secondary)')+';cursor:pointer;white-space:nowrap;margin:2px;">'+MONTH_LABELS[m]+'</button>';
-  }).join('');
+  if(isManager){
+    // Manager: can set targets for each rep
+    var activeRep=window._annualTargetRep||'julien';
+    var repTabs=REPS.map(function(r){return '<button class="q-btn'+(activeRep===r.key?' active':'')+'" onclick="window._annualTargetRep=\''+r.key+'\';showSection(\'monthly-targets-entry\')">'+r.name+'</button>';}).join('');
+    var monthBtns=FISCAL_MONTHS.map(function(m){return '<button class="q-btn'+(m===activeMonth?' active':'')+'" style="font-size:10px;padding:3px 8px;" onclick="selectedTargetMonth=\''+m+'\';showSection(\'monthly-targets-entry\')">'+MLABELS[m]+'</button>';}).join('');
+    var mt=(weeklyTargets[activeRep]||{})[activeMonth]||{};
+    return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Objectifs mensuels</div><div class="ph-sub">Définir les targets par commercial</div></div></div>'+
+      '<div class="card">'+
+        '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'+repTabs+'</div>'+
+        '<div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;">'+monthBtns+'</div>'+
+        '<div style="font-size:12px;font-weight:500;color:var(--ebury-blue-d);margin-bottom:10px;">'+(MLABELS[activeMonth]||activeMonth)+' — '+repByKey(activeRep).name+'</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
+          '<div class="fg"><span class="fl">Target Net Revenue (£)</span><input class="fi" type="number" id="mt_rev" value="'+(mt.rev||'')+'" min="0" step="100"></div>'+
+          '<div class="fg"><span class="fl">Target Apps</span><input class="fi" type="number" id="mt_apps" value="'+(mt.apps||'')+'" min="0"></div>'+
+          '<div class="fg"><span class="fl">Target Clients</span><input class="fi" type="number" id="mt_clients" value="'+(mt.clients||'')+'" min="0"></div>'+
+          '<div class="fg"><span class="fl">Target Meeting</span><input class="fi" type="number" id="mt_meeting" value="'+(mt.meeting||'')+'" min="0"></div>'+
+          '<div class="fg"><span class="fl">Target Opportunity</span><input class="fi" type="number" id="mt_opportunity" value="'+(mt.opportunity||'')+'" min="0"></div>'+
+        '</div>'+
+        '<button class="btn-save" onclick="saveMonthlyTargetFromEntry()">Enregistrer</button>'+
+      '</div>';
+  } else {
+    // Sales: read-only view of manager-set targets
+    var rep=currentRep;
+    var repInfo=repByKey(rep);
+    var monthBtns2=FISCAL_MONTHS.map(function(m){return '<button class="q-btn'+(m===activeMonth?' active':'')+'" style="font-size:10px;padding:3px 8px;" onclick="selectedTargetMonth=\''+m+'\';showSection(\'monthly-targets-entry\')">'+MLABELS[m]+'</button>';}).join('');
+    var mt2=(weeklyTargets[rep]||{})[activeMonth]||{};
+    var KPIS=[
+      {key:'rev',label:'Net Revenue',fmt:function(v){return v?fmtGBP(v):'—';}},
+      {key:'apps',label:'Apps soumises',fmt:function(v){return v||'—';}},
+      {key:'clients',label:'Clients signés',fmt:function(v){return v||'—';}},
+      {key:'meeting',label:'Meeting',fmt:function(v){return v||'—';}},
+      {key:'opportunity',label:'Opportunity',fmt:function(v){return v||'—';}}
+    ];
+    var hasAny=mt2.rev||mt2.apps||mt2.clients||mt2.meeting||mt2.opportunity;
+    var content=hasAny?
+      KPIS.map(function(k){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:.5px solid var(--color-border-tertiary);"><span style="font-size:12px;color:var(--color-text-secondary);">'+k.label+'</span><span style="font-size:14px;font-weight:500;font-family:var(--font-mono);">'+k.fmt(mt2[k.key])+'</span></div>';}).join('') :
+      '<div style="padding:1.5rem;text-align:center;color:var(--color-text-tertiary);font-size:12px;">Aucun objectif défini par le manager pour '+(MLABELS[activeMonth]||activeMonth)+'. Contactez votre manager.</div>';
+    return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Mes objectifs</div><div class="ph-sub">'+repInfo.name+' — targets fixées par le manager</div></div></div>'+
+      '<div class="card">'+
+        '<div style="padding:8px 12px;background:var(--ebury-blue-l);border-radius:8px;font-size:11px;color:var(--ebury-blue-d);margin-bottom:14px;">Objectifs définis par le manager. Contactez Charlotte pour les modifier.</div>'+
+        '<div style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;">'+monthBtns2+'</div>'+
+        '<div style="font-size:12px;font-weight:500;color:var(--ebury-blue-d);margin-bottom:12px;">'+(MLABELS[activeMonth]||activeMonth)+'</div>'+
+        content+
+      '</div>';
+  }
+}
 
-  var t = (weeklyTargets[rep]||{})[selectedTargetMonth]||{};
-  var mLabel = MONTH_LABELS[selectedTargetMonth]||selectedTargetMonth;
-
-  var content = isManager ?
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">'+
-      '<div class="fg"><span class="fl">Target Net Revenue (\xA3)</span><input class="fi" type="number" id="mt_rev" value="'+(t.rev||'')+'" min="0" step="100"></div>'+
-      '<div class="fg"><span class="fl">Target Negotiating (nb)</span><input class="fi" type="number" id="mt_nego" value="'+(t.negotiating||'')+'" min="0"></div>'+
-      '<div class="fg"><span class="fl">Target Apps</span><input class="fi" type="number" id="mt_apps" value="'+(t.apps||'')+'" min="0"></div>'+
-      '<div class="fg"><span class="fl">Target Clients</span><input class="fi" type="number" id="mt_cli" value="'+(t.clients||'')+'" min="0"></div>'+
-      '<div class="fg"><span class="fl">Target Meeting</span><input class="fi" type="number" id="mt_meet" value="'+(t.meeting||'')+'" min="0"></div>'+
-      '<div class="fg"><span class="fl">Target Opportunity</span><input class="fi" type="number" id="mt_opp" value="'+(t.opportunity||'')+'" min="0"></div>'+
-    '</div>'+
-    (isManager?'<button class="btn-save" onclick="saveMonthlyTarget()">Enregistrer les objectifs</button>':'') :
-    '<div style="padding:12px;background:var(--ebury-blue-l);border-radius:8px;font-size:12px;color:var(--ebury-blue-d);">Les objectifs mensuels sont définis par le manager.</div>';
-
-  return '<div class="ph">'+backBtn()+'<div><div class="ph-title">Objectifs mensuels</div><div class="ph-sub">'+repByKey(rep).name+' \u2014 targets par mois</div></div></div>'+
-    '<div class="card">'+
-      (isManager?'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">'+repTabs+'</div>':'')+
-      '<div class="card-title">S\u00e9lectionner le mois</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">'+monthBtns+'</div>'+
-      '<div style="font-size:12px;font-weight:500;margin-bottom:12px;color:var(--ebury-blue-d);">'+mLabel+'</div>'+
-      content+
-    '</div>';
+async function saveMonthlyTargetFromEntry(){
+  var rep=isManager?(window._annualTargetRep||'julien'):currentRep;
+  var m=selectedTargetMonth||getCurrentMonthKey();
+  var data={rev:parseFloat(document.getElementById('mt_rev').value)||0,apps:parseInt(document.getElementById('mt_apps').value)||0,clients:parseInt(document.getElementById('mt_clients').value)||0,meeting:parseInt(document.getElementById('mt_meeting').value)||0,opportunity:parseInt(document.getElementById('mt_opportunity').value)||0,negotiating:0};
+  if(!weeklyTargets[rep])weeklyTargets[rep]={};
+  weeklyTargets[rep][m]=data;
+  showLoading('Sauvegarde...');
+  await saveMonthlyTargetToDB(rep,m,data);
+  hideLoading();
+  showSection('monthly-targets-entry');
 }
 
 function selectTargetMonth(m){ selectedTargetMonth=m; showSection('monthly-targets-entry'); }
@@ -1996,9 +2122,23 @@ function renderPerfMTD(){
   function getRepLM(repKey){ return getWeeksInMonth(prevMonth).reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
   function getRepQTD(repKey){ return getWeeksInQuarter(curQ).reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
   function getRepFY(repKey){ return getFiscalWeeks().reduce(function(s,w){ return s+(((weeklyKPIs[repKey]||{})[weekKey(w)]||{}).rev||0); },0); }
-  function getRepMTDTarget(repKey){ return ((weeklyTargets[repKey]||{})[curMonth]||{}).rev||0; }
+  function getRepMTDTarget(repKey){
+    if(repKey==='manager'){
+      // Manager's monthly target = FY target minus sum of all reps targets for this month
+      var repsMTDTgt=REPS.reduce(function(s,r){return s+(((weeklyTargets[r.key]||{})[curMonth]||{}).rev||0);},0);
+      var fyTgt=annualTeamTarget.rev||0;
+      var totalMTDTgt=fyTgt/12;
+      return Math.max(0,totalMTDTgt-repsMTDTgt);
+    }
+    return ((weeklyTargets[repKey]||{})[curMonth]||{}).rev||0;
+  }
   function getRepQTDTarget(repKey){ return getWeeksInQuarter(curQ).reduce(function(s,w){ return s+(((weeklyTargets[repKey]||{})[getMonthKey(w)]||{}).rev||0); },0); }
-  function getRepFYTarget(repKey){ return getFiscalWeeks().reduce(function(s,w){ return s+(((weeklyTargets[repKey]||{})[getMonthKey(w)]||{}).rev||0); },0); }
+  function getRepFYTarget(repKey){
+    // Use direct FY target if set, otherwise sum monthly targets
+    var direct=annualRepTargets[repKey]||0;
+    if(direct>0) return direct;
+    return getFiscalWeeks().reduce(function(s,w){ return s+(((weeklyTargets[repKey]||{})[getMonthKey(w)]||{}).rev||0); },0);
+  }
 
   function pctBadge(p){
     var cls=p>=75?'b-ok':p>=50?'b-warn':'b-danger';
@@ -2007,7 +2147,7 @@ function renderPerfMTD(){
   function delta(a,b){ var d=a-b; return (d>=0?'<span style="color:#3B6D11;">+'+fmtGBP(d)+'</span>':'<span style="color:#A32D2D;">'+fmtGBP(d)+'</span>'); }
 
   // Build rows for team + each rep
-  var entities = [{key:'team', name:'\u00c9quipe', av:'', isTeam:true}].concat(REPS.map(function(r){return {key:r.key,name:r.name,av:r.av,init:r.init,isTeam:false};}));
+  var entities = [{key:'team', name:'\u00c9quipe', av:'', isTeam:true}].concat([{key:'manager',name:'Charlotte',av:'av-m',init:'CH',isTeam:false}]).concat(REPS.map(function(r){return {key:r.key,name:r.name,av:r.av,init:r.init,isTeam:false};}));
 
   var rows = entities.map(function(e){
     var mtdRev = e.isTeam ? REPS.reduce(function(s,r){return s+getRepMTD(r.key);},0) : getRepMTD(e.key);
