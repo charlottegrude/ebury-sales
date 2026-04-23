@@ -1194,7 +1194,7 @@ function switchPipeRep(k){currentRep=k;document.getElementById('repSelector').va
 function setPipeFilter(f){pipeFilter=f;showSection('pipe');}
 
 function openDealModal(repKey,editIdx){
-  var isEdit=editIdx!==undefined&&editIdx>=0;
+  var isEdit=editIdx!==undefined&&editIdx!==null&&editIdx>=0;
   var d=isEdit?(repKey==='manager'?mgrDeals[editIdx]:deals[repKey][editIdx]):{};
   var currOpts=CURRENCIES.map(function(c){return'<option value="'+c+'">'+c+'</option>';}).join('');
   document.getElementById('modalTitle').textContent=isEdit?'Modifier le deal':'Nouveau deal \u2014 New Business';
@@ -1642,7 +1642,7 @@ function copyAllEmails(source){
 }
 
 function openMgrDealModal(editIdx){
-  var isEdit=editIdx!==undefined&&editIdx>=0;
+  var isEdit=editIdx!==undefined&&editIdx!==null&&editIdx>=0;
   var d=isEdit?mgrDeals[editIdx]:{};
   document.getElementById('modalTitle').textContent=isEdit?'Modifier le deal manager':'Nouveau deal \u2014 Manager';
   document.getElementById('modalBody').innerHTML=
